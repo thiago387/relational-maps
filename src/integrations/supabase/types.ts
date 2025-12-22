@@ -14,7 +14,195 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      emails: {
+        Row: {
+          bcc_emails: string[] | null
+          body: string | null
+          cc_emails: string[] | null
+          created_at: string
+          date: string | null
+          emotional_markers: string[] | null
+          from_email: string
+          from_name: string | null
+          id: string
+          is_analyzed: boolean | null
+          message_id: string | null
+          raw_content: string | null
+          sentiment_category: string | null
+          sentiment_score: number | null
+          subject: string | null
+          to_emails: string[] | null
+          to_names: string[] | null
+          topics: string[] | null
+        }
+        Insert: {
+          bcc_emails?: string[] | null
+          body?: string | null
+          cc_emails?: string[] | null
+          created_at?: string
+          date?: string | null
+          emotional_markers?: string[] | null
+          from_email: string
+          from_name?: string | null
+          id?: string
+          is_analyzed?: boolean | null
+          message_id?: string | null
+          raw_content?: string | null
+          sentiment_category?: string | null
+          sentiment_score?: number | null
+          subject?: string | null
+          to_emails?: string[] | null
+          to_names?: string[] | null
+          topics?: string[] | null
+        }
+        Update: {
+          bcc_emails?: string[] | null
+          body?: string | null
+          cc_emails?: string[] | null
+          created_at?: string
+          date?: string | null
+          emotional_markers?: string[] | null
+          from_email?: string
+          from_name?: string | null
+          id?: string
+          is_analyzed?: boolean | null
+          message_id?: string | null
+          raw_content?: string | null
+          sentiment_category?: string | null
+          sentiment_score?: number | null
+          subject?: string | null
+          to_emails?: string[] | null
+          to_names?: string[] | null
+          topics?: string[] | null
+        }
+        Relationships: []
+      }
+      persons: {
+        Row: {
+          avg_sentiment: number | null
+          community_id: number | null
+          created_at: string
+          email: string
+          email_count_received: number | null
+          email_count_sent: number | null
+          id: string
+          name: string | null
+          updated_at: string
+        }
+        Insert: {
+          avg_sentiment?: number | null
+          community_id?: number | null
+          created_at?: string
+          email: string
+          email_count_received?: number | null
+          email_count_sent?: number | null
+          id?: string
+          name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avg_sentiment?: number | null
+          community_id?: number | null
+          created_at?: string
+          email?: string
+          email_count_received?: number | null
+          email_count_sent?: number | null
+          id?: string
+          name?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      processing_jobs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          job_type: string
+          processed_items: number | null
+          status: string
+          total_items: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          job_type: string
+          processed_items?: number | null
+          status?: string
+          total_items?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          job_type?: string
+          processed_items?: number | null
+          status?: string
+          total_items?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      relationships: {
+        Row: {
+          created_at: string
+          emails_a_to_b: number | null
+          emails_b_to_a: number | null
+          first_contact: string | null
+          id: string
+          last_contact: string | null
+          person_a_id: string
+          person_b_id: string
+          sentiment_a_to_b: number | null
+          sentiment_b_to_a: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          emails_a_to_b?: number | null
+          emails_b_to_a?: number | null
+          first_contact?: string | null
+          id?: string
+          last_contact?: string | null
+          person_a_id: string
+          person_b_id: string
+          sentiment_a_to_b?: number | null
+          sentiment_b_to_a?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          emails_a_to_b?: number | null
+          emails_b_to_a?: number | null
+          first_contact?: string | null
+          id?: string
+          last_contact?: string | null
+          person_a_id?: string
+          person_b_id?: string
+          sentiment_a_to_b?: number | null
+          sentiment_b_to_a?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "relationships_person_a_id_fkey"
+            columns: ["person_a_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "relationships_person_b_id_fkey"
+            columns: ["person_b_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
