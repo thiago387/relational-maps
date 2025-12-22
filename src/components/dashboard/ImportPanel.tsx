@@ -20,9 +20,9 @@ import {
 import type { Email } from '@/types/graph';
 
 interface ImportPanelProps {
-  onScrape: (url: string, action: string) => Promise<any>;
+  onScrape: (params: { url: string; action: string }) => Promise<any>;
   onImport: (emails: Partial<Email>[]) => Promise<any>;
-  onAnalyze: (batchSize?: number) => Promise<any>;
+  onAnalyze: (params: { batchSize?: number; jobId?: string }) => Promise<any>;
   onCompute: () => Promise<any>;
   onClear: () => Promise<any>;
   onRefresh: () => void;
@@ -249,7 +249,7 @@ export function ImportPanel({
       let processed = stats.analyzedCount;
 
       while (remaining > 0) {
-        const result = await onAnalyze(10);
+        const result = await onAnalyze({ batchSize: 10 });
         
         if (!result.success) {
           if (result.error?.includes('Rate limit')) {
@@ -391,7 +391,7 @@ export function ImportPanel({
             disabled={isProcessing}
           />
           <Button 
-            onClick={() => onScrape(sourceUrl, 'discover')} 
+            onClick={() => onScrape({ url: sourceUrl, action: 'discover' })} 
             disabled={isProcessing || !sourceUrl}
             variant="outline"
             className="w-full"
