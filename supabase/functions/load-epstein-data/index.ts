@@ -15,14 +15,36 @@ interface HuggingFaceRow {
 }
 
 interface ParsedMessage {
-  from: string;
-  to: string[];
+  sender: string;
+  recipients: string | string[];
   cc?: string[];
   bcc?: string[];
-  date: string;
+  timestamp: string;
   subject: string;
   body: string;
 }
+
+// Extract email from "Name [email@domain.com]" or "Name <email@domain.com>" format
+const extractEmail = (str: string): { email: string; name: string | null } => {
+  if (!str) return { email: '', name: null };
+  // Handle [email] format (used in this dataset)
+  const matchSquare = str.match(/\[([^\]]+)\]/);
+  if (matchSquare) {
+    const name = str.replace(/\[[^\]]+\]/, '').trim();
+    return { email: matchSquare[1].toLowerCase().trim(), name: name || null };
+  }
+  // Handle <email> format
+  const matchAngle = str.match(/<([^>]+)>/);
+  if (matchAngle) {
+    const name = str.replace(/<[^>]+>/, '').trim();
+    return { email: matchAngle[1].toLowerCase().trim(), name: name || null };
+  }
+  // Plain email
+  if (str.includes('@')) {
+    return { email: str.toLowerCase().trim(), name: null };
+  }
+  return { email: '', name: null };
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -94,20 +116,10 @@ Deno.serve(async (req) => {
           }
           
           for (const msg of messages) {
-            if (!msg || !msg.from) continue;
+            // Use 'sender' field instead of 'from'
+            if (!msg || !msg.sender) continue;
             
-            // Extract email from "Name <email@domain.com>" format
-            const extractEmail = (str: string): { email: string; name: string | null } => {
-              if (!str) return { email: '', name: null };
-              const match = str.match(/<([^>]+)>/);
-              if (match) {
-                const name = str.replace(/<[^>]+>/, '').trim();
-                return { email: match[1].toLowerCase().trim(), name: name || null };
-              }
-              return { email: str.toLowerCase().trim(), name: null };
-            };
-            
-            const from = extractEmail(msg.from);
+            const from = extractEmail(msg.sender);
             if (!from.email || !from.email.includes('@')) continue;
             
             personEmails.add(from.email);
@@ -115,7 +127,8 @@ Deno.serve(async (req) => {
             const toEmails: string[] = [];
             const toNames: string[] = [];
             
-            const toList = Array.isArray(msg.to) ? msg.to : [msg.to].filter(Boolean);
+            // Use 'recipients' field instead of 'to'
+            const toList = Array.isArray(msg.recipients) ? msg.recipients : [msg.recipients].filter(Boolean);
             for (const t of toList) {
               const to = extractEmail(t);
               if (to.email && to.email.includes('@')) {
@@ -153,11 +166,11 @@ Deno.serve(async (req) => {
               }
             }
             
-            // Parse date
+            // Parse date - use 'timestamp' field instead of 'date'
             let parsedDate: string | null = null;
-            if (msg.date) {
+            if (msg.timestamp) {
               try {
-                const d = new Date(msg.date);
+                const d = new Date(msg.timestamp);
                 if (!isNaN(d.getTime())) {
                   parsedDate = d.toISOString();
                 }
