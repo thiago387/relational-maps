@@ -2,3 +2,12 @@ project_id = "qjngldfisjszeepmhxpa"
 
 [functions.load-epstein-data]
 verify_jwt = false
+
+[functions.analyze-sentiment]
+verify_jwt = false
+
+[functions.compute-graph]
+verify_jwt = false
+
+[functions.scrape-emails]
+verify_jwt = false
