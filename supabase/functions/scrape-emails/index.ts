@@ -12,22 +12,24 @@ serve(async (req) => {
   }
 
   try {
-    const { sourceUrl, action } = await req.json();
+    // Parse body only once
+    const body = await req.json();
+    const { sourceUrl, action, emails } = body;
     
     const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
-    if (!firecrawlApiKey) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Firecrawl not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
+    
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     if (action === 'discover') {
-      // Map the source URL to discover available files
+      if (!firecrawlApiKey) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Firecrawl not configured' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       console.log('Mapping URL:', sourceUrl);
       
       const mapResponse = await fetch('https://api.firecrawl.dev/v1/map', {
@@ -60,7 +62,13 @@ serve(async (req) => {
     }
 
     if (action === 'scrape') {
-      // Scrape the content from the URL
+      if (!firecrawlApiKey) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Firecrawl not configured' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       console.log('Scraping URL:', sourceUrl);
       
       const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
@@ -98,15 +106,14 @@ serve(async (req) => {
     }
 
     if (action === 'parse') {
-      // Parse email content and store in database
-      const { emails } = await req.json();
-      
       if (!emails || !Array.isArray(emails)) {
         return new Response(
           JSON.stringify({ success: false, error: 'No emails provided' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+
+      console.log('Parsing', emails.length, 'emails');
 
       // Create a processing job
       const { data: job, error: jobError } = await supabase
@@ -176,6 +183,8 @@ serve(async (req) => {
           .from('persons')
           .upsert(personsToInsert, { onConflict: 'email', ignoreDuplicates: true });
       }
+
+      console.log('Import complete:', processed, 'emails,', personsToInsert.length, 'persons');
 
       return new Response(
         JSON.stringify({ success: true, jobId: job.id, processed }),
