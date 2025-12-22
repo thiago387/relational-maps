@@ -15,7 +15,8 @@ import {
   FileText,
   Download,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Database
 } from 'lucide-react';
 import type { Email } from '@/types/graph';
 
@@ -26,11 +27,13 @@ interface ImportPanelProps {
   onCompute: () => Promise<any>;
   onClear: () => Promise<any>;
   onRefresh: () => void;
+  onLoadDataset: (params: { action: 'info' | 'fetch'; offset?: number; limit?: number }) => Promise<any>;
   isScraping: boolean;
   isImporting: boolean;
   isAnalyzing: boolean;
   isComputing: boolean;
   isClearing: boolean;
+  isLoadingDataset: boolean;
   stats: {
     emailCount: number;
     analyzedCount: number;
@@ -141,17 +144,22 @@ export function ImportPanel({
   onCompute,
   onClear,
   onRefresh,
+  onLoadDataset,
   isScraping,
   isImporting,
   isAnalyzing,
   isComputing,
   isClearing,
+  isLoadingDataset,
   stats,
 }: ImportPanelProps) {
   const { toast } = useToast();
   const [sourceUrl, setSourceUrl] = useState('https://github.com/the-atlantic/epstein-emails');
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [datasetProgress, setDatasetProgress] = useState(0);
+  const [datasetTotal, setDatasetTotal] = useState(0);
+  const [isLoadingFullDataset, setIsLoadingFullDataset] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleLoadDemo = async () => {
@@ -167,6 +175,71 @@ export function ImportPanel({
         description: 'Failed to load demo data',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleLoadEpsteinDataset = async () => {
+    setIsLoadingFullDataset(true);
+    setDatasetProgress(0);
+    
+    try {
+      // First, get dataset info
+      toast({
+        title: 'Fetching dataset info...',
+        description: 'Connecting to Hugging Face...',
+      });
+      
+      const infoResult = await onLoadDataset({ action: 'info' });
+      
+      if (!infoResult.success) {
+        throw new Error(infoResult.error || 'Failed to fetch dataset info');
+      }
+      
+      const totalRows = infoResult.totalRows || 5080;
+      setDatasetTotal(totalRows);
+      
+      toast({
+        title: 'Loading dataset...',
+        description: `Found ${totalRows} email threads to import`,
+      });
+      
+      // Fetch in batches of 100 rows
+      const batchSize = 100;
+      let offset = 0;
+      let totalInserted = 0;
+      
+      while (offset < totalRows) {
+        const result = await onLoadDataset({ action: 'fetch', offset, limit: batchSize });
+        
+        if (!result.success) {
+          console.error('Batch error:', result.error);
+          // Continue even if one batch fails
+        } else {
+          totalInserted += result.inserted || 0;
+        }
+        
+        offset += batchSize;
+        setDatasetProgress(Math.min(100, Math.round((offset / totalRows) * 100)));
+        
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      toast({
+        title: 'Dataset loaded successfully!',
+        description: `Imported ${totalInserted} emails from Hugging Face`,
+      });
+      
+      onRefresh();
+    } catch (error) {
+      toast({
+        title: 'Error loading dataset',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingFullDataset(false);
+      setDatasetProgress(0);
     }
   };
 
@@ -317,7 +390,7 @@ export function ImportPanel({
     }
   };
 
-  const isProcessing = isScraping || isImporting || isAnalyzing || isComputing || isClearing || isRunningPipeline;
+  const isProcessing = isScraping || isImporting || isAnalyzing || isComputing || isClearing || isRunningPipeline || isLoadingDataset || isLoadingFullDataset;
 
   return (
     <Card className="p-4 space-y-4">
@@ -333,12 +406,47 @@ export function ImportPanel({
         </Button>
       </div>
 
-      <Tabs defaultValue="demo" className="w-full">
-        <TabsList className="w-full">
-          <TabsTrigger value="demo" className="flex-1">Demo</TabsTrigger>
-          <TabsTrigger value="file" className="flex-1">File</TabsTrigger>
-          <TabsTrigger value="url" className="flex-1">URL</TabsTrigger>
+      <Tabs defaultValue="dataset" className="w-full">
+        <TabsList className="w-full grid grid-cols-4">
+          <TabsTrigger value="dataset">Dataset</TabsTrigger>
+          <TabsTrigger value="demo">Demo</TabsTrigger>
+          <TabsTrigger value="file">File</TabsTrigger>
+          <TabsTrigger value="url">URL</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dataset" className="mt-4 space-y-3">
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Load the real Epstein email dataset from Hugging Face (~5,080 email threads).
+            </p>
+            <p className="text-xs text-muted-foreground/70">
+              Source: notesbymuneeb/epstein-emails on Hugging Face
+            </p>
+          </div>
+          
+          {isLoadingFullDataset && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Loading emails...</span>
+                <span>{datasetProgress}%</span>
+              </div>
+              <Progress value={datasetProgress} />
+            </div>
+          )}
+          
+          <Button 
+            onClick={handleLoadEpsteinDataset} 
+            disabled={isProcessing}
+            className="w-full"
+          >
+            {isLoadingFullDataset ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Database className="h-4 w-4 mr-2" />
+            )}
+            {isLoadingFullDataset ? `Loading... ${datasetProgress}%` : 'Load Epstein Email Dataset'}
+          </Button>
+        </TabsContent>
 
         <TabsContent value="demo" className="mt-4 space-y-3">
           <p className="text-sm text-muted-foreground">

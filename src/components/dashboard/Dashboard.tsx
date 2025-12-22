@@ -32,6 +32,8 @@ export function Dashboard() {
     isImporting,
     clearData,
     isClearing,
+    loadDataset,
+    isLoadingDataset,
     refreshAll,
   } = useGraphData();
 
@@ -92,11 +94,13 @@ export function Dashboard() {
                 onCompute={compute}
                 onClear={clearData}
                 onRefresh={refreshAll}
+                onLoadDataset={loadDataset}
                 isScraping={isScraping}
                 isImporting={isImporting}
                 isAnalyzing={isAnalyzing}
                 isComputing={isComputing}
                 isClearing={isClearing}
+                isLoadingDataset={isLoadingDataset}
                 stats={stats}
               />
               
