@@ -22,8 +22,6 @@ export function Dashboard() {
     filters,
     setFilters,
     isLoading,
-    scrape,
-    isScraping,
     analyze,
     isAnalyzing,
     compute,
@@ -32,8 +30,6 @@ export function Dashboard() {
     isImporting,
     clearData,
     isClearing,
-    loadDataset,
-    isLoadingDataset,
     refreshAll,
   } = useGraphData();
 
@@ -88,19 +84,15 @@ export function Dashboard() {
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
               <ImportPanel
-                onScrape={scrape}
                 onImport={importEmails}
                 onAnalyze={analyze}
                 onCompute={compute}
                 onClear={clearData}
                 onRefresh={refreshAll}
-                onLoadDataset={loadDataset}
-                isScraping={isScraping}
                 isImporting={isImporting}
                 isAnalyzing={isAnalyzing}
                 isComputing={isComputing}
                 isClearing={isClearing}
-                isLoadingDataset={isLoadingDataset}
                 stats={stats}
               />
               
