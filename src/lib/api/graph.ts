@@ -233,3 +233,12 @@ export async function clearAllData() {
   await supabase.from('emails').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('processing_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 }
+
+export async function loadEpsteinDataset(action: 'info' | 'fetch', offset = 0, limit = 100) {
+  const { data, error } = await supabase.functions.invoke('load-epstein-data', {
+    body: { action, offset, limit },
+  });
+  
+  if (error) throw error;
+  return data;
+}

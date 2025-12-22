@@ -11,6 +11,7 @@ import {
   computeGraph,
   importEmails,
   clearAllData,
+  loadEpsteinDataset,
 } from '@/lib/api/graph';
 import type { FilterState } from '@/types/graph';
 
@@ -107,6 +108,16 @@ export function useGraphData() {
     },
   });
 
+  const loadDatasetMutation = useMutation({
+    mutationFn: ({ action, offset, limit }: { action: 'info' | 'fetch'; offset?: number; limit?: number }) => 
+      loadEpsteinDataset(action, offset, limit),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emails'] });
+      queryClient.invalidateQueries({ queryKey: ['persons'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+
   const refreshAll = () => {
     queryClient.invalidateQueries();
   };
@@ -143,6 +154,9 @@ export function useGraphData() {
     
     clearData: clearMutation.mutateAsync,
     isClearing: clearMutation.isPending,
+    
+    loadDataset: loadDatasetMutation.mutateAsync,
+    isLoadingDataset: loadDatasetMutation.isPending,
     
     refreshAll,
     refetchStats,

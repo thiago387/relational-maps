@@ -1,1 +1,4 @@
 project_id = "qjngldfisjszeepmhxpa"
+
+[functions.load-epstein-data]
+verify_jwt = false
