@@ -1,39 +1,29 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { 
-  Upload, 
-  Link, 
   Play, 
   Loader2, 
-  CheckCircle2, 
-  AlertCircle,
-  FileText,
-  Download,
   Trash2,
   RefreshCw,
-  Database
+  Database,
+  Zap
 } from 'lucide-react';
 import type { Email } from '@/types/graph';
+import { parseEmailCSV, type CSVParseProgress } from '@/lib/csvParser';
 
 interface ImportPanelProps {
-  onScrape: (params: { url: string; action: string }) => Promise<any>;
   onImport: (emails: Partial<Email>[]) => Promise<any>;
   onAnalyze: (params: { batchSize?: number; jobId?: string }) => Promise<any>;
   onCompute: () => Promise<any>;
   onClear: () => Promise<any>;
   onRefresh: () => void;
-  onLoadDataset: (params: { action: 'info' | 'fetch'; offset?: number; limit?: number }) => Promise<any>;
-  isScraping: boolean;
   isImporting: boolean;
   isAnalyzing: boolean;
   isComputing: boolean;
   isClearing: boolean;
-  isLoadingDataset: boolean;
   stats: {
     emailCount: number;
     analyzedCount: number;
@@ -42,192 +32,67 @@ interface ImportPanelProps {
   } | undefined;
 }
 
-// Sample demo data for testing
-const DEMO_EMAILS: Partial<Email>[] = [
-  {
-    message_id: 'demo-1',
-    from_email: 'jeffrey.epstein@example.com',
-    from_name: 'Jeffrey Epstein',
-    to_emails: ['ghislaine.maxwell@example.com'],
-    subject: 'Meeting tomorrow',
-    body: 'We need to discuss the upcoming arrangements. Please confirm your attendance.',
-    date: '2015-03-15T10:30:00Z',
-  },
-  {
-    message_id: 'demo-2',
-    from_email: 'ghislaine.maxwell@example.com',
-    from_name: 'Ghislaine Maxwell',
-    to_emails: ['jeffrey.epstein@example.com'],
-    subject: 'Re: Meeting tomorrow',
-    body: 'Confirmed. I will be there at 2pm. Looking forward to it.',
-    date: '2015-03-15T14:22:00Z',
-  },
-  {
-    message_id: 'demo-3',
-    from_email: 'jeffrey.epstein@example.com',
-    from_name: 'Jeffrey Epstein',
-    to_emails: ['assistant@example.com', 'ghislaine.maxwell@example.com'],
-    subject: 'Travel arrangements',
-    body: 'Please book the private jet for next week. Need to be in New York by Thursday.',
-    date: '2015-03-20T09:15:00Z',
-  },
-  {
-    message_id: 'demo-4',
-    from_email: 'assistant@example.com',
-    from_name: 'Personal Assistant',
-    to_emails: ['jeffrey.epstein@example.com'],
-    subject: 'Re: Travel arrangements',
-    body: 'Done. Flight scheduled for Wednesday evening. Hotel booked at the usual place.',
-    date: '2015-03-20T11:45:00Z',
-  },
-  {
-    message_id: 'demo-5',
-    from_email: 'lawyer@lawfirm.com',
-    from_name: 'Legal Counsel',
-    to_emails: ['jeffrey.epstein@example.com'],
-    subject: 'Urgent: Legal matters',
-    body: 'We need to discuss some pressing legal issues. This is urgent and requires immediate attention.',
-    date: '2015-04-02T16:30:00Z',
-  },
-  {
-    message_id: 'demo-6',
-    from_email: 'jeffrey.epstein@example.com',
-    from_name: 'Jeffrey Epstein',
-    to_emails: ['lawyer@lawfirm.com'],
-    cc_emails: ['ghislaine.maxwell@example.com'],
-    subject: 'Re: Urgent: Legal matters',
-    body: 'I am very concerned about this. We need to handle this carefully and discretely.',
-    date: '2015-04-02T18:00:00Z',
-  },
-  {
-    message_id: 'demo-7',
-    from_email: 'finance@company.com',
-    from_name: 'Finance Manager',
-    to_emails: ['jeffrey.epstein@example.com'],
-    subject: 'Quarterly report',
-    body: 'Attached is the quarterly financial report. Everything looks positive this quarter.',
-    date: '2015-04-10T09:00:00Z',
-  },
-  {
-    message_id: 'demo-8',
-    from_email: 'ghislaine.maxwell@example.com',
-    from_name: 'Ghislaine Maxwell',
-    to_emails: ['assistant@example.com'],
-    subject: 'Event planning',
-    body: 'Need to organize the dinner party for next month. Please send me the guest list.',
-    date: '2015-04-15T13:20:00Z',
-  },
-  {
-    message_id: 'demo-9',
-    from_email: 'assistant@example.com',
-    from_name: 'Personal Assistant',
-    to_emails: ['ghislaine.maxwell@example.com'],
-    subject: 'Re: Event planning',
-    body: 'Guest list attached. Do you want me to send out the invitations?',
-    date: '2015-04-15T15:45:00Z',
-  },
-  {
-    message_id: 'demo-10',
-    from_email: 'jeffrey.epstein@example.com',
-    from_name: 'Jeffrey Epstein',
-    to_emails: ['finance@company.com'],
-    subject: 'Investment opportunity',
-    body: 'I want to explore a new investment. Please prepare an analysis by end of week.',
-    date: '2015-04-20T10:00:00Z',
-  },
-];
-
 export function ImportPanel({
-  onScrape,
   onImport,
   onAnalyze,
   onCompute,
   onClear,
   onRefresh,
-  onLoadDataset,
-  isScraping,
   isImporting,
   isAnalyzing,
   isComputing,
   isClearing,
-  isLoadingDataset,
   stats,
 }: ImportPanelProps) {
   const { toast } = useToast();
-  const [sourceUrl, setSourceUrl] = useState('https://github.com/the-atlantic/epstein-emails');
+  const [isLoadingCSV, setIsLoadingCSV] = useState(false);
+  const [csvProgress, setCsvProgress] = useState<CSVParseProgress | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
-  const [datasetProgress, setDatasetProgress] = useState(0);
-  const [datasetTotal, setDatasetTotal] = useState(0);
-  const [isLoadingFullDataset, setIsLoadingFullDataset] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleLoadDemo = async () => {
-    try {
-      await onImport(DEMO_EMAILS);
-      toast({
-        title: 'Demo data loaded',
-        description: `${DEMO_EMAILS.length} sample emails imported successfully`,
-      });
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to load demo data',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleLoadEpsteinDataset = async () => {
-    setIsLoadingFullDataset(true);
-    setDatasetProgress(0);
+  const handleLoadCSV = async () => {
+    setIsLoadingCSV(true);
+    setCsvProgress({ phase: 'fetching', current: 0, total: 0, emailsFound: 0 });
     
     try {
-      // First, get dataset info
-      toast({
-        title: 'Fetching dataset info...',
-        description: 'Connecting to Hugging Face...',
-      });
-      
-      const infoResult = await onLoadDataset({ action: 'info' });
-      
-      if (!infoResult.success) {
-        throw new Error(infoResult.error || 'Failed to fetch dataset info');
-      }
-      
-      const totalRows = infoResult.totalRows || 5080;
-      setDatasetTotal(totalRows);
-      
       toast({
         title: 'Loading dataset...',
-        description: `Found ${totalRows} email threads to import`,
+        description: 'Parsing CSV file...',
       });
       
-      // Fetch in batches of 100 rows
-      const batchSize = 100;
-      let offset = 0;
-      let totalInserted = 0;
+      const emails = await parseEmailCSV((progress) => {
+        setCsvProgress(progress);
+      });
       
-      while (offset < totalRows) {
-        const result = await onLoadDataset({ action: 'fetch', offset, limit: batchSize });
+      if (emails.length === 0) {
+        throw new Error('No valid emails found in CSV');
+      }
+      
+      toast({
+        title: 'Importing emails...',
+        description: `Found ${emails.length} emails, inserting into database...`,
+      });
+      
+      // Import in batches to avoid timeout
+      const batchSize = 100;
+      let imported = 0;
+      
+      for (let i = 0; i < emails.length; i += batchSize) {
+        const batch = emails.slice(i, i + batchSize);
+        await onImport(batch);
+        imported += batch.length;
         
-        if (!result.success) {
-          console.error('Batch error:', result.error);
-          // Continue even if one batch fails
-        } else {
-          totalInserted += result.inserted || 0;
-        }
-        
-        offset += batchSize;
-        setDatasetProgress(Math.min(100, Math.round((offset / totalRows) * 100)));
-        
-        // Small delay between batches
-        await new Promise(resolve => setTimeout(resolve, 300));
+        setCsvProgress({
+          phase: 'parsing',
+          current: imported,
+          total: emails.length,
+          emailsFound: imported,
+        });
       }
       
       toast({
         title: 'Dataset loaded successfully!',
-        description: `Imported ${totalInserted} emails from Hugging Face`,
+        description: `Imported ${emails.length} emails from CSV`,
       });
       
       onRefresh();
@@ -238,68 +103,8 @@ export function ImportPanel({
         variant: 'destructive',
       });
     } finally {
-      setIsLoadingFullDataset(false);
-      setDatasetProgress(0);
-    }
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      let emails: Partial<Email>[] = [];
-
-      if (file.name.endsWith('.json')) {
-        const data = JSON.parse(text);
-        emails = Array.isArray(data) ? data : [data];
-      } else if (file.name.endsWith('.csv')) {
-        // Simple CSV parsing
-        const lines = text.split('\n');
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        
-        emails = lines.slice(1).filter(line => line.trim()).map(line => {
-          const values = line.split(',');
-          const email: Partial<Email> = {};
-          
-          headers.forEach((header, i) => {
-            const value = values[i]?.trim();
-            if (header === 'from' || header === 'from_email') email.from_email = value;
-            if (header === 'to' || header === 'to_emails') email.to_emails = [value];
-            if (header === 'subject') email.subject = value;
-            if (header === 'body' || header === 'content') email.body = value;
-            if (header === 'date') email.date = value;
-          });
-          
-          return email;
-        }).filter(e => e.from_email);
-      }
-
-      if (emails.length > 0) {
-        await onImport(emails);
-        toast({
-          title: 'Import successful',
-          description: `${emails.length} emails imported`,
-        });
-      } else {
-        toast({
-          title: 'No emails found',
-          description: 'Could not parse any emails from the file',
-          variant: 'destructive',
-        });
-      }
-    } catch (error) {
-      toast({
-        title: 'Import failed',
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    }
-
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      setIsLoadingCSV(false);
+      setCsvProgress(null);
     }
   };
 
@@ -307,7 +112,7 @@ export function ImportPanel({
     if (!stats || stats.emailCount === 0) {
       toast({
         title: 'No emails to analyze',
-        description: 'Import emails first before running analysis',
+        description: 'Load the dataset first before running analysis',
         variant: 'destructive',
       });
       return;
@@ -354,7 +159,7 @@ export function ImportPanel({
       await onCompute();
 
       toast({
-        title: 'Pipeline complete',
+        title: 'Pipeline complete!',
         description: 'Graph is ready to explore!',
       });
 
@@ -390,7 +195,29 @@ export function ImportPanel({
     }
   };
 
-  const isProcessing = isScraping || isImporting || isAnalyzing || isComputing || isClearing || isRunningPipeline || isLoadingDataset || isLoadingFullDataset;
+  const isProcessing = isImporting || isAnalyzing || isComputing || isClearing || isRunningPipeline || isLoadingCSV;
+  const hasData = stats && stats.emailCount > 0;
+  const needsAnalysis = stats && stats.emailCount > stats.analyzedCount;
+
+  const getProgressPercent = (): number => {
+    if (csvProgress) {
+      if (csvProgress.phase === 'complete') return 100;
+      return csvProgress.total > 0 ? Math.round((csvProgress.current / csvProgress.total) * 100) : 0;
+    }
+    return analysisProgress;
+  };
+
+  const getProgressLabel = (): string => {
+    if (csvProgress) {
+      if (csvProgress.phase === 'fetching') return 'Fetching CSV...';
+      if (csvProgress.phase === 'parsing') return `Parsing: ${csvProgress.current}/${csvProgress.total} (${csvProgress.emailsFound} emails)`;
+      return 'Complete';
+    }
+    if (isRunningPipeline) {
+      return `Analyzing: ${analysisProgress}%`;
+    }
+    return '';
+  };
 
   return (
     <Card className="p-4 space-y-4">
@@ -406,181 +233,112 @@ export function ImportPanel({
         </Button>
       </div>
 
-      <Tabs defaultValue="dataset" className="w-full">
-        <TabsList className="w-full grid grid-cols-4">
-          <TabsTrigger value="dataset">Dataset</TabsTrigger>
-          <TabsTrigger value="demo">Demo</TabsTrigger>
-          <TabsTrigger value="file">File</TabsTrigger>
-          <TabsTrigger value="url">URL</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="dataset" className="mt-4 space-y-3">
+      {/* Load Dataset Section */}
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Load the Epstein email dataset (~5,000 email threads) from the bundled CSV file.
+        </p>
+        
+        {(isLoadingCSV || csvProgress) && (
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Load the real Epstein email dataset from Hugging Face (~5,080 email threads).
-            </p>
-            <p className="text-xs text-muted-foreground/70">
-              Source: notesbymuneeb/epstein-emails on Hugging Face
-            </p>
+            <div className="flex justify-between text-sm">
+              <span>{getProgressLabel()}</span>
+              <span>{getProgressPercent()}%</span>
+            </div>
+            <Progress value={getProgressPercent()} />
           </div>
-          
-          {isLoadingFullDataset && (
+        )}
+        
+        <Button 
+          onClick={handleLoadCSV} 
+          disabled={isProcessing}
+          className="w-full"
+          variant={hasData ? "outline" : "default"}
+        >
+          {isLoadingCSV ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Database className="h-4 w-4 mr-2" />
+          )}
+          {isLoadingCSV ? 'Loading...' : hasData ? 'Reload Dataset' : 'Load Epstein Emails'}
+        </Button>
+      </div>
+
+      {/* Analysis Pipeline Section */}
+      {hasData && (
+        <div className="space-y-3 pt-2 border-t border-border">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Analysis Pipeline</span>
+            {needsAnalysis && (
+              <span className="text-xs text-muted-foreground">
+                {stats.analyzedCount}/{stats.emailCount} analyzed
+              </span>
+            )}
+          </div>
+
+          {isRunningPipeline && (
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span>Loading emails...</span>
-                <span>{datasetProgress}%</span>
+                <span>Analyzing emails...</span>
+                <span>{analysisProgress}%</span>
               </div>
-              <Progress value={datasetProgress} />
+              <Progress value={analysisProgress} />
             </div>
           )}
-          
-          <Button 
-            onClick={handleLoadEpsteinDataset} 
-            disabled={isProcessing}
-            className="w-full"
-          >
-            {isLoadingFullDataset ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Database className="h-4 w-4 mr-2" />
-            )}
-            {isLoadingFullDataset ? `Loading... ${datasetProgress}%` : 'Load Epstein Email Dataset'}
-          </Button>
-        </TabsContent>
-
-        <TabsContent value="demo" className="mt-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Load sample email data to test the visualization without importing real data.
-          </p>
-          <Button 
-            onClick={handleLoadDemo} 
-            disabled={isProcessing}
-            className="w-full"
-          >
-            {isImporting ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4 mr-2" />
-            )}
-            Load Demo Data ({DEMO_EMAILS.length} emails)
-          </Button>
-        </TabsContent>
-
-        <TabsContent value="file" className="mt-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Upload a JSON or CSV file containing email data.
-          </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,.csv"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          <Button 
-            onClick={() => fileInputRef.current?.click()} 
-            disabled={isProcessing}
-            variant="outline"
-            className="w-full"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Upload File
-          </Button>
-        </TabsContent>
-
-        <TabsContent value="url" className="mt-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Scrape email data from a public URL using Firecrawl.
-          </p>
-          <Input
-            placeholder="Enter source URL..."
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            disabled={isProcessing}
-          />
-          <Button 
-            onClick={() => onScrape({ url: sourceUrl, action: 'discover' })} 
-            disabled={isProcessing || !sourceUrl}
-            variant="outline"
-            className="w-full"
-          >
-            {isScraping ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Link className="h-4 w-4 mr-2" />
-            )}
-            Discover Data
-          </Button>
-        </TabsContent>
-      </Tabs>
-
-      {/* Analysis section */}
-      {stats && stats.emailCount > 0 && (
-        <div className="space-y-3 pt-3 border-t border-border">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Analysis Progress</span>
-            <span className="font-medium">
-              {stats.analyzedCount} / {stats.emailCount} emails
-            </span>
-          </div>
-          
-          <Progress 
-            value={isRunningPipeline ? analysisProgress : (stats.analyzedCount / stats.emailCount) * 100} 
-          />
 
           <Button
             onClick={handleRunAnalysis}
-            disabled={isProcessing || stats.analyzedCount === stats.emailCount}
+            disabled={isProcessing || !needsAnalysis}
             className="w-full"
+            variant={needsAnalysis ? "default" : "outline"}
           >
             {isRunningPipeline ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Analyzing... {analysisProgress}%
-              </>
-            ) : stats.analyzedCount === stats.emailCount ? (
-              <>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Analysis Complete
-              </>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
-              <>
-                <Play className="h-4 w-4 mr-2" />
-                Run Analysis Pipeline
-              </>
+              <Zap className="h-4 w-4 mr-2" />
             )}
+            {isRunningPipeline 
+              ? 'Running...' 
+              : needsAnalysis 
+                ? 'Run Analysis Pipeline' 
+                : 'Analysis Complete'}
           </Button>
 
-          {stats.analyzedCount === stats.emailCount && stats.relationshipCount === 0 && (
-            <Button
-              onClick={onCompute}
-              disabled={isProcessing}
-              variant="secondary"
-              className="w-full"
-            >
-              {isComputing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Compute Graph
-            </Button>
-          )}
+          <Button
+            onClick={() => onCompute()}
+            disabled={isProcessing}
+            variant="outline"
+            className="w-full"
+            size="sm"
+          >
+            {isComputing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4 mr-2" />
+            )}
+            Recompute Graph Only
+          </Button>
         </div>
       )}
 
-      {/* Clear data */}
-      {stats && stats.emailCount > 0 && (
-        <Button
-          onClick={handleClearData}
-          disabled={isProcessing}
-          variant="destructive"
-          size="sm"
-          className="w-full"
-        >
-          <Trash2 className="h-4 w-4 mr-2" />
-          Clear All Data
-        </Button>
+      {/* Clear Data Section */}
+      {hasData && (
+        <div className="pt-2 border-t border-border">
+          <Button
+            onClick={handleClearData}
+            disabled={isProcessing}
+            variant="destructive"
+            className="w-full"
+            size="sm"
+          >
+            {isClearing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-2" />
+            )}
+            Clear All Data
+          </Button>
+        </div>
       )}
     </Card>
   );

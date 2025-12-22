@@ -6,12 +6,10 @@ import {
   fetchEmails,
   fetchStats,
   buildGraphData,
-  scrapeEmails,
   analyzeSentiment,
   computeGraph,
   importEmails,
   clearAllData,
-  loadEpsteinDataset,
 } from '@/lib/api/graph';
 import type { FilterState } from '@/types/graph';
 
@@ -70,9 +68,6 @@ export function useGraphData() {
     ] as [Date, Date];
   }, [relationships]);
 
-  const scrapeMutation = useMutation({
-    mutationFn: ({ url, action }: { url: string; action: string }) => scrapeEmails(url, action),
-  });
 
   const analyzeMutation = useMutation({
     mutationFn: ({ batchSize, jobId }: { batchSize?: number; jobId?: string }) => 
@@ -108,16 +103,6 @@ export function useGraphData() {
     },
   });
 
-  const loadDatasetMutation = useMutation({
-    mutationFn: ({ action, offset, limit }: { action: 'info' | 'fetch'; offset?: number; limit?: number }) => 
-      loadEpsteinDataset(action, offset, limit),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['emails'] });
-      queryClient.invalidateQueries({ queryKey: ['persons'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-
   const refreshAll = () => {
     queryClient.invalidateQueries();
   };
@@ -140,9 +125,6 @@ export function useGraphData() {
     isLoading: personsLoading || relationshipsLoading || emailsLoading || statsLoading,
     
     // Mutations
-    scrape: scrapeMutation.mutateAsync,
-    isScraping: scrapeMutation.isPending,
-    
     analyze: analyzeMutation.mutateAsync,
     isAnalyzing: analyzeMutation.isPending,
     
@@ -154,9 +136,6 @@ export function useGraphData() {
     
     clearData: clearMutation.mutateAsync,
     isClearing: clearMutation.isPending,
-    
-    loadDataset: loadDatasetMutation.mutateAsync,
-    isLoadingDataset: loadDatasetMutation.isPending,
     
     refreshAll,
     refetchStats,
