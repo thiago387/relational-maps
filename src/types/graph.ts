@@ -96,6 +96,7 @@ export interface GraphLink {
   curvature: number;
   avgPolarity: number | null;
   edgeSentiment: string | null;
+  mergedEdgeCount?: number; // Number of original edges merged into this link
 }
 
 export interface GraphData {
