@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { X, Mail, User, ArrowRight, ArrowLeft, TrendingUp, TrendingDown } from 'lucide-react';
+import { X, Mail, User, ArrowRight, ArrowLeft, TrendingUp, TrendingDown, ExternalLink } from 'lucide-react';
 import type { GraphNode, GraphLink, Email, Person, Relationship } from '@/types/graph';
 import { getSentimentColor, getCommunityColor } from '@/lib/api/graph';
 import { format } from 'date-fns';
@@ -16,6 +16,7 @@ interface DetailPanelProps {
   relationships: Relationship[];
   emails: Email[];
   onClose: () => void;
+  onViewMessages?: (person?: string, sender?: string, recipient?: string) => void;
 }
 
 export function DetailPanel({
@@ -25,6 +26,7 @@ export function DetailPanel({
   relationships,
   emails,
   onClose,
+  onViewMessages,
 }: DetailPanelProps) {
   if (!selectedNode && !selectedLink) return null;
 
@@ -46,6 +48,7 @@ export function DetailPanel({
             relationships={relationships}
             persons={persons}
             emails={emails}
+            onViewMessages={onViewMessages}
           />
         )}
         {selectedLink && (
@@ -53,6 +56,7 @@ export function DetailPanel({
             link={selectedLink}
             persons={persons}
             emails={emails}
+            onViewMessages={onViewMessages}
           />
         )}
       </ScrollArea>
@@ -64,12 +68,14 @@ function PersonDetail({
   node, 
   relationships, 
   persons,
-  emails 
+  emails,
+  onViewMessages,
 }: { 
   node: GraphNode; 
   relationships: Relationship[];
   persons: Person[];
   emails: Email[];
+  onViewMessages?: (person?: string, sender?: string, recipient?: string) => void;
 }) {
   const person = persons.find(p => p.id === node.id);
   
@@ -93,11 +99,13 @@ function PersonDetail({
     .sort((a, b) => (b.emailsSent + b.emailsReceived) - (a.emailsSent + a.emailsReceived))
     .slice(0, 10);
 
-  // Get emails for this person
+  // Get emails for this person (using sender_id for pre-computed data)
   const personEmails = emails
     .filter(e => 
-      e.from_email.toLowerCase() === node.email.toLowerCase() ||
-      e.to_emails?.some(t => t.toLowerCase() === node.email.toLowerCase())
+      e.sender_id === node.id || 
+      e.recipient === node.id ||
+      e.from_email?.toLowerCase() === node.email?.toLowerCase() ||
+      e.to_emails?.some(t => t.toLowerCase() === node.email?.toLowerCase())
     )
     .slice(0, 20);
 
@@ -125,12 +133,12 @@ function PersonDetail({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-muted/50 rounded-md p-3">
-            <p className="text-xs text-muted-foreground">Emails Sent</p>
-            <p className="text-lg font-bold">{person?.email_count_sent || 0}</p>
+            <p className="text-xs text-muted-foreground">Total Emails</p>
+            <p className="text-lg font-bold">{node.emailCount || person?.email_count_sent || 0}</p>
           </div>
           <div className="bg-muted/50 rounded-md p-3">
-            <p className="text-xs text-muted-foreground">Emails Received</p>
-            <p className="text-lg font-bold">{person?.email_count_received || 0}</p>
+            <p className="text-xs text-muted-foreground">Connections</p>
+            <p className="text-lg font-bold">{personRelationships.length}</p>
           </div>
         </div>
 
@@ -164,6 +172,17 @@ function PersonDetail({
               #{node.communityId}
             </Badge>
           </div>
+        )}
+
+        {onViewMessages && (
+          <Button 
+            onClick={() => onViewMessages(node.id)} 
+            className="w-full"
+            variant="outline"
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            View All Messages
+          </Button>
         )}
       </TabsContent>
 
@@ -206,10 +225,10 @@ function PersonDetail({
             personEmails.map(email => (
               <div key={email.id} className="bg-muted/30 rounded-md p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  {email.sentiment_score !== null && (
+                  {(email.polarity ?? email.sentiment_score) !== null && (
                     <div 
                       className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: getSentimentColor(email.sentiment_score) }}
+                      style={{ backgroundColor: getSentimentColor(email.polarity ?? email.sentiment_score) }}
                     />
                   )}
                   <span className="font-medium text-sm truncate flex-1">
@@ -236,11 +255,13 @@ function PersonDetail({
 function RelationshipDetail({ 
   link, 
   persons,
-  emails 
+  emails,
+  onViewMessages,
 }: { 
   link: GraphLink;
   persons: Person[];
   emails: Email[];
+  onViewMessages?: (person?: string, sender?: string, recipient?: string) => void;
 }) {
   const sourceId = typeof link.source === 'string' ? link.source : (link.source as any).id;
   const targetId = typeof link.target === 'string' ? link.target : (link.target as any).id;
@@ -248,14 +269,24 @@ function RelationshipDetail({
   const personA = persons.find(p => p.id === sourceId);
   const personB = persons.find(p => p.id === targetId);
 
+  // For pre-computed edges, source/target are the person IDs directly
+  const senderName = personA?.name || sourceId;
+  const recipientName = personB?.name || targetId;
+
   // Get emails between these two people
   const relationshipEmails = emails
     .filter(e => {
-      const fromMatch = [personA?.email, personB?.email].includes(e.from_email.toLowerCase());
+      // Check using sender_id/recipient for pre-computed data
+      const matchForward = e.sender_id === sourceId && e.recipient === targetId;
+      const matchBackward = e.sender_id === targetId && e.recipient === sourceId;
+      
+      // Also check legacy email fields
+      const fromMatch = [personA?.email, personB?.email].filter(Boolean).includes(e.from_email?.toLowerCase());
       const toMatch = e.to_emails?.some(t => 
-        [personA?.email, personB?.email].includes(t.toLowerCase())
+        [personA?.email, personB?.email].filter(Boolean).includes(t.toLowerCase())
       );
-      return fromMatch && toMatch;
+      
+      return matchForward || matchBackward || (fromMatch && toMatch);
     })
     .slice(0, 20);
 
@@ -270,9 +301,9 @@ function RelationshipDetail({
             className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold mx-auto mb-1"
             style={{ backgroundColor: getCommunityColor(personA?.community_id ?? null) }}
           >
-            {personA?.name?.charAt(0) || 'A'}
+            {senderName?.charAt(0) || 'A'}
           </div>
-          <p className="text-xs font-medium">{personA?.name || personA?.email?.split('@')[0]}</p>
+          <p className="text-xs font-medium truncate max-w-[80px]">{senderName}</p>
         </div>
         
         <div className="flex-1 flex items-center justify-center">
@@ -286,16 +317,16 @@ function RelationshipDetail({
             className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold mx-auto mb-1"
             style={{ backgroundColor: getCommunityColor(personB?.community_id ?? null) }}
           >
-            {personB?.name?.charAt(0) || 'B'}
+            {recipientName?.charAt(0) || 'B'}
           </div>
-          <p className="text-xs font-medium">{personB?.name || personB?.email?.split('@')[0]}</p>
+          <p className="text-xs font-medium truncate max-w-[80px]">{recipientName}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-muted/50 rounded-md p-3 text-center">
           <p className="text-xs text-muted-foreground mb-1">
-            {personA?.name?.split(' ')[0] || 'A'} → {personB?.name?.split(' ')[0] || 'B'}
+            {senderName?.split(' ')[0] || 'A'} → {recipientName?.split(' ')[0] || 'B'}
           </p>
           <p className="text-lg font-bold">{link.emailsAtoB}</p>
           {link.sentimentAtoB !== null && (
@@ -310,7 +341,7 @@ function RelationshipDetail({
         </div>
         <div className="bg-muted/50 rounded-md p-3 text-center">
           <p className="text-xs text-muted-foreground mb-1">
-            {personB?.name?.split(' ')[0] || 'B'} → {personA?.name?.split(' ')[0] || 'A'}
+            {recipientName?.split(' ')[0] || 'B'} → {senderName?.split(' ')[0] || 'A'}
           </p>
           <p className="text-lg font-bold">{link.emailsBtoA}</p>
           {link.sentimentBtoA !== null && (
@@ -325,19 +356,36 @@ function RelationshipDetail({
         </div>
       </div>
 
-      <div className="bg-muted/50 rounded-md p-3">
-        <p className="text-xs text-muted-foreground mb-1">Dominant Direction</p>
-        <div className="flex items-center gap-2">
-          {dominantDirection === 'A→B' ? (
-            <TrendingUp className="h-4 w-4 text-primary" />
-          ) : (
-            <TrendingDown className="h-4 w-4 text-primary" />
-          )}
-          <span>
-            {dominantDirection === 'A→B' ? personA?.name : personB?.name} contacts more often
-          </span>
+      {link.avgPolarity !== null && (
+        <div className="bg-muted/50 rounded-md p-3">
+          <p className="text-xs text-muted-foreground mb-1">Average Polarity</p>
+          <div className="flex items-center gap-2">
+            <div 
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: getSentimentColor(link.avgPolarity) }}
+            />
+            <span className="font-medium">
+              {link.avgPolarity > 0 ? '+' : ''}{link.avgPolarity.toFixed(3)}
+            </span>
+            {link.edgeSentiment && (
+              <Badge variant="outline" className="text-xs">
+                {link.edgeSentiment}
+              </Badge>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {onViewMessages && (
+        <Button 
+          onClick={() => onViewMessages(undefined, sourceId, targetId)} 
+          className="w-full"
+          variant="outline"
+        >
+          <ExternalLink className="h-4 w-4 mr-2" />
+          View All Messages
+        </Button>
+      )}
 
       <div>
         <h4 className="text-sm font-medium mb-2">Recent Emails</h4>
@@ -348,10 +396,10 @@ function RelationshipDetail({
             relationshipEmails.map(email => (
               <div key={email.id} className="bg-muted/30 rounded-md p-2">
                 <div className="flex items-center gap-2">
-                  {email.sentiment_score !== null && (
+                  {(email.polarity ?? email.sentiment_score) !== null && (
                     <div 
                       className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: getSentimentColor(email.sentiment_score) }}
+                      style={{ backgroundColor: getSentimentColor(email.polarity ?? email.sentiment_score) }}
                     />
                   )}
                   <span className="text-xs truncate">
