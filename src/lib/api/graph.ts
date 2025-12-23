@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Person, Relationship, Email, ProcessingJob, GraphData, GraphNode, GraphLink, FilterState, Edge } from '@/types/graph';
+import { detectCommunities } from '@/lib/communityDetection';
 
 // Community colors - distinct colors for different communities
 const COMMUNITY_COLORS = [
@@ -112,6 +113,9 @@ export function buildGraphFromEdges(
   edges: Edge[],
   filters: FilterState
 ): GraphData {
+  // Detect communities from ALL edges BEFORE filtering
+  const communityMap = detectCommunities(edges);
+  
   // Filter edges
   const filteredEdges = edges.filter(edge => {
     // Min emails filter
@@ -141,10 +145,13 @@ export function buildGraphFromEdges(
     return true;
   });
 
-  // Build nodes from edges
+  // Build nodes from edges with community info
   const nodeMap = new Map<string, GraphNode>();
   
   filteredEdges.forEach(edge => {
+    const senderCommunity = communityMap.get(edge.sender_id) ?? null;
+    const recipientCommunity = communityMap.get(edge.recipient_id) ?? null;
+    
     // Sender node
     if (!nodeMap.has(edge.sender_id)) {
       nodeMap.set(edge.sender_id, {
@@ -152,8 +159,8 @@ export function buildGraphFromEdges(
         name: edge.sender_id,
         email: edge.sender_id,
         val: 5,
-        color: getSentimentColor(edge.avg_polarity),
-        communityId: null,
+        color: getCommunityColor(senderCommunity),
+        communityId: senderCommunity,
         emailCount: edge.message_count,
         avgSentiment: edge.avg_polarity,
       });
@@ -169,8 +176,8 @@ export function buildGraphFromEdges(
         name: edge.recipient_id,
         email: edge.recipient_id,
         val: 5,
-        color: getSentimentColor(edge.avg_polarity),
-        communityId: null,
+        color: getCommunityColor(recipientCommunity),
+        communityId: recipientCommunity,
         emailCount: edge.message_count,
         avgSentiment: edge.avg_polarity,
       });

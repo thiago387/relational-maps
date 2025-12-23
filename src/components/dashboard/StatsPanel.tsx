@@ -6,7 +6,7 @@ interface StatsPanelProps {
     emailCount: number;
     analyzedCount: number;
     personCount: number;
-    relationshipCount: number;
+    edgeCount: number;
   } | undefined;
   graphStats: {
     nodesCount: number;
@@ -52,7 +52,7 @@ export function StatsPanel({ stats, graphStats }: StatsPanelProps) {
             <GitBranch className="h-3 w-3" />
             <span className="text-xs">Connections</span>
           </div>
-          <p className="text-xl font-bold">{stats?.relationshipCount.toLocaleString() || 0}</p>
+          <p className="text-xl font-bold">{stats?.edgeCount.toLocaleString() || 0}</p>
           <p className="text-xs text-muted-foreground">
             {graphStats.linksCount} visible
           </p>
