@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useGraphData } from '@/hooks/useGraphData';
 import { NetworkGraph } from '@/components/dashboard/NetworkGraph';
 import { FilterPanel } from '@/components/dashboard/FilterPanel';
@@ -11,9 +12,11 @@ import { Loader2 } from 'lucide-react';
 import type { GraphNode, GraphLink } from '@/types/graph';
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const {
     persons,
     relationships,
+    edges,
     emails,
     stats,
     graphData,
@@ -22,12 +25,8 @@ export function Dashboard() {
     filters,
     setFilters,
     isLoading,
-    analyze,
-    isAnalyzing,
-    compute,
-    isComputing,
-    importEmails,
-    isImporting,
+    loadData,
+    isLoadingData,
     clearData,
     isClearing,
     refreshAll,
@@ -57,6 +56,14 @@ export function Dashboard() {
     setSelectedLink(null);
   };
 
+  const handleViewMessages = (person?: string, sender?: string, recipient?: string) => {
+    if (sender && recipient) {
+      navigate(`/messages?sender=${encodeURIComponent(sender)}&recipient=${encodeURIComponent(recipient)}`);
+    } else if (person) {
+      navigate(`/messages?person=${encodeURIComponent(person)}`);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
@@ -84,14 +91,10 @@ export function Dashboard() {
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
               <ImportPanel
-                onImport={importEmails}
-                onAnalyze={analyze}
-                onCompute={compute}
+                onLoadData={loadData}
                 onClear={clearData}
                 onRefresh={refreshAll}
-                isImporting={isImporting}
-                isAnalyzing={isAnalyzing}
-                isComputing={isComputing}
+                isLoadingData={isLoadingData}
                 isClearing={isClearing}
                 stats={stats}
               />
@@ -132,6 +135,7 @@ export function Dashboard() {
             relationships={relationships}
             emails={emails}
             onClose={handleCloseDetail}
+            onViewMessages={handleViewMessages}
           />
         </main>
       </div>

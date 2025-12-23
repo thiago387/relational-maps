@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { Person, Relationship, Email, ProcessingJob, GraphData, GraphNode, GraphLink, FilterState } from '@/types/graph';
+import type { Person, Relationship, Email, ProcessingJob, GraphData, GraphNode, GraphLink, FilterState, Edge } from '@/types/graph';
 
 // Community colors - distinct colors for different communities
 const COMMUNITY_COLORS = [
@@ -51,6 +51,16 @@ export async function fetchRelationships(): Promise<Relationship[]> {
   return data || [];
 }
 
+export async function fetchEdges(): Promise<Edge[]> {
+  const { data, error } = await supabase
+    .from('edges')
+    .select('*')
+    .order('message_count', { ascending: false });
+  
+  if (error) throw error;
+  return data || [];
+}
+
 export async function fetchEmails(limit = 1000): Promise<Email[]> {
   const { data, error } = await supabase
     .from('emails')
@@ -59,7 +69,7 @@ export async function fetchEmails(limit = 1000): Promise<Email[]> {
     .limit(limit);
   
   if (error) throw error;
-  return data || [];
+  return (data || []) as Email[];
 }
 
 export async function fetchProcessingJobs(): Promise<ProcessingJob[]> {
@@ -78,12 +88,14 @@ export async function fetchStats(): Promise<{
   analyzedCount: number;
   personCount: number;
   relationshipCount: number;
+  edgeCount: number;
 }> {
-  const [emails, analyzed, persons, relationships] = await Promise.all([
+  const [emails, analyzed, persons, relationships, edges] = await Promise.all([
     supabase.from('emails').select('*', { count: 'exact', head: true }),
     supabase.from('emails').select('*', { count: 'exact', head: true }).eq('is_analyzed', true),
     supabase.from('persons').select('*', { count: 'exact', head: true }),
     supabase.from('relationships').select('*', { count: 'exact', head: true }),
+    supabase.from('edges').select('*', { count: 'exact', head: true }),
   ]);
 
   return {
@@ -91,9 +103,109 @@ export async function fetchStats(): Promise<{
     analyzedCount: analyzed.count || 0,
     personCount: persons.count || 0,
     relationshipCount: relationships.count || 0,
+    edgeCount: edges.count || 0,
   };
 }
 
+// Build graph from pre-computed edges (new method)
+export function buildGraphFromEdges(
+  edges: Edge[],
+  filters: FilterState
+): GraphData {
+  // Filter edges
+  const filteredEdges = edges.filter(edge => {
+    // Min emails filter
+    if (edge.message_count < filters.minEmails) return false;
+    
+    // Sentiment filter
+    if (edge.avg_polarity !== null) {
+      if (edge.avg_polarity < filters.sentimentRange[0] || 
+          edge.avg_polarity > filters.sentimentRange[1]) {
+        return false;
+      }
+    }
+    
+    // Negative only filter
+    if (filters.showNegativeOnly && (edge.avg_polarity === null || edge.avg_polarity >= 0)) {
+      return false;
+    }
+    
+    // Selected person filter
+    if (filters.selectedPerson) {
+      if (edge.sender_id !== filters.selectedPerson && 
+          edge.recipient_id !== filters.selectedPerson) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+
+  // Build nodes from edges
+  const nodeMap = new Map<string, GraphNode>();
+  
+  filteredEdges.forEach(edge => {
+    // Sender node
+    if (!nodeMap.has(edge.sender_id)) {
+      nodeMap.set(edge.sender_id, {
+        id: edge.sender_id,
+        name: edge.sender_id,
+        email: edge.sender_id,
+        val: 5,
+        color: getSentimentColor(edge.avg_polarity),
+        communityId: null,
+        emailCount: edge.message_count,
+        avgSentiment: edge.avg_polarity,
+      });
+    } else {
+      const existing = nodeMap.get(edge.sender_id)!;
+      existing.emailCount += edge.message_count;
+    }
+
+    // Recipient node
+    if (!nodeMap.has(edge.recipient_id)) {
+      nodeMap.set(edge.recipient_id, {
+        id: edge.recipient_id,
+        name: edge.recipient_id,
+        email: edge.recipient_id,
+        val: 5,
+        color: getSentimentColor(edge.avg_polarity),
+        communityId: null,
+        emailCount: edge.message_count,
+        avgSentiment: edge.avg_polarity,
+      });
+    } else {
+      const existing = nodeMap.get(edge.recipient_id)!;
+      existing.emailCount += edge.message_count;
+    }
+  });
+
+  // Convert node map to array and adjust sizes
+  const nodes: GraphNode[] = [];
+  nodeMap.forEach(node => {
+    node.val = Math.max(5, Math.log(node.emailCount + 1) * 3);
+    nodes.push(node);
+  });
+
+  // Build links
+  const links: GraphLink[] = filteredEdges.map(edge => ({
+    source: edge.sender_id,
+    target: edge.recipient_id,
+    value: Math.max(1, Math.sqrt(edge.message_count)),
+    color: getSentimentColor(edge.avg_polarity),
+    sentimentAtoB: edge.avg_polarity,
+    sentimentBtoA: null,
+    emailsAtoB: edge.message_count,
+    emailsBtoA: 0,
+    curvature: 0.2,
+    avgPolarity: edge.avg_polarity,
+    edgeSentiment: edge.edge_sentiment,
+  }));
+
+  return { nodes, links };
+}
+
+// Legacy: Build graph from persons/relationships
 export function buildGraphData(
   persons: Person[],
   relationships: Relationship[],
@@ -109,7 +221,6 @@ export function buildGraphData(
     }
     
     if (filters.selectedPerson && p.id !== filters.selectedPerson) {
-      // Check if this person is connected to the selected person
       const isConnected = relationships.some(r =>
         (r.person_a_id === filters.selectedPerson && r.person_b_id === p.id) ||
         (r.person_b_id === filters.selectedPerson && r.person_a_id === p.id)
@@ -129,7 +240,6 @@ export function buildGraphData(
     const totalEmails = r.emails_a_to_b + r.emails_b_to_a;
     if (totalEmails < filters.minEmails) return false;
     
-    // Date filter
     if (filters.dateRange[0] || filters.dateRange[1]) {
       const firstContact = r.first_contact ? new Date(r.first_contact) : null;
       const lastContact = r.last_contact ? new Date(r.last_contact) : null;
@@ -138,7 +248,6 @@ export function buildGraphData(
       if (filters.dateRange[1] && firstContact && firstContact > filters.dateRange[1]) return false;
     }
     
-    // Sentiment filter
     const avgSentiment = ((r.sentiment_a_to_b || 0) + (r.sentiment_b_to_a || 0)) / 2;
     if (avgSentiment < filters.sentimentRange[0] || avgSentiment > filters.sentimentRange[1]) return false;
     
@@ -151,10 +260,7 @@ export function buildGraphData(
 
   // Build nodes
   const nodes: GraphNode[] = filteredPersons
-    .filter(p => {
-      // Only include persons that have at least one relationship after filtering
-      return filteredRelationships.some(r => r.person_a_id === p.id || r.person_b_id === p.id);
-    })
+    .filter(p => filteredRelationships.some(r => r.person_a_id === p.id || r.person_b_id === p.id))
     .map(p => ({
       id: p.id,
       name: p.name || p.email.split('@')[0],
@@ -185,60 +291,20 @@ export function buildGraphData(
         emailsAtoB: r.emails_a_to_b,
         emailsBtoA: r.emails_b_to_a,
         curvature: 0.2,
+        avgPolarity: avgSentiment,
+        edgeSentiment: null,
       };
     });
 
   return { nodes, links };
 }
 
-export async function scrapeEmails(sourceUrl: string, action: string) {
-  const { data, error } = await supabase.functions.invoke('scrape-emails', {
-    body: { sourceUrl, action },
-  });
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function analyzeSentiment(batchSize = 10, jobId?: string) {
-  const { data, error } = await supabase.functions.invoke('analyze-sentiment', {
-    body: { batchSize, jobId },
-  });
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function computeGraph() {
-  const { data, error } = await supabase.functions.invoke('compute-graph', {
-    body: {},
-  });
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function importEmails(emails: Partial<Email>[]) {
-  const { data, error } = await supabase.functions.invoke('scrape-emails', {
-    body: { emails, action: 'parse' },
-  });
-  
-  if (error) throw error;
-  return data;
-}
-
 export async function clearAllData() {
-  await supabase.from('relationships').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  await supabase.from('persons').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  await supabase.from('emails').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  await supabase.from('processing_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-}
-
-export async function loadEpsteinDataset(action: 'info' | 'fetch', offset = 0, limit = 100) {
-  const { data, error } = await supabase.functions.invoke('load-epstein-data', {
-    body: { action, offset, limit },
-  });
-  
-  if (error) throw error;
-  return data;
+  await Promise.all([
+    supabase.from('edges').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+    supabase.from('relationships').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+    supabase.from('persons').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+    supabase.from('emails').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+    supabase.from('processing_jobs').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+  ]);
 }

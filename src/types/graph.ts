@@ -20,9 +20,13 @@ export interface Relationship {
   last_contact: string | null;
 }
 
+// Updated Email interface to match pre-computed CSV structure
 export interface Email {
   id: string;
-  message_id: string | null;
+  thread_id: string | null;
+  sender_id: string | null;
+  recipient: string | null;
+  recipient_list: string[] | null;
   from_email: string;
   from_name: string | null;
   to_emails: string[];
@@ -32,11 +36,31 @@ export interface Email {
   date: string | null;
   subject: string | null;
   body: string | null;
+  message_clean: string | null;
+  polarity: number | null;
   sentiment_score: number | null;
   sentiment_category: string | null;
   emotional_markers: string[];
   topics: string[];
+  year: number | null;
+  month: number | null;
+  thread_subject: string | null;
+  source_file: string | null;
   is_analyzed: boolean;
+  message_id: string | null;
+}
+
+// Edge interface for pre-computed relationships
+export interface Edge {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  message_count: number;
+  avg_polarity: number | null;
+  edge_sentiment: string | null;
+  weight_norm: number | null;
+  edge_width: number | null;
+  created_at: string;
 }
 
 export interface ProcessingJob {
@@ -70,6 +94,8 @@ export interface GraphLink {
   emailsAtoB: number;
   emailsBtoA: number;
   curvature: number;
+  avgPolarity: number | null;
+  edgeSentiment: string | null;
 }
 
 export interface GraphData {
@@ -84,4 +110,33 @@ export interface FilterState {
   selectedPerson: string | null;
   selectedCommunities: number[];
   showNegativeOnly: boolean;
+}
+
+// Raw CSV row types for parsing
+export interface RawEdgeRow {
+  sender_id: string;
+  recipient_id: string;
+  message_count: string;
+  avg_polarity: string;
+  edge_sentiment: string;
+  weight_norm: string;
+  edge_width: string;
+}
+
+export interface RawEmailRow {
+  thread_id: string;
+  sender: string;
+  recipient: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  year: string;
+  month: string;
+  thread_subject: string;
+  source_file: string;
+  message_clean: string;
+  sender_id: string;
+  recipient_list: string;
+  polarity: string;
+  sentiment: string;
 }

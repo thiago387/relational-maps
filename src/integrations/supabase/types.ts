@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      edges: {
+        Row: {
+          avg_polarity: number | null
+          created_at: string
+          edge_sentiment: string | null
+          edge_width: number | null
+          id: string
+          message_count: number | null
+          recipient_id: string
+          sender_id: string
+          weight_norm: number | null
+        }
+        Insert: {
+          avg_polarity?: number | null
+          created_at?: string
+          edge_sentiment?: string | null
+          edge_width?: number | null
+          id?: string
+          message_count?: number | null
+          recipient_id: string
+          sender_id: string
+          weight_norm?: number | null
+        }
+        Update: {
+          avg_polarity?: number | null
+          created_at?: string
+          edge_sentiment?: string | null
+          edge_width?: number | null
+          id?: string
+          message_count?: number | null
+          recipient_id?: string
+          sender_id?: string
+          weight_norm?: number | null
+        }
+        Relationships: []
+      }
       emails: {
         Row: {
           bcc_emails: string[] | null
@@ -26,14 +62,24 @@ export type Database = {
           from_name: string | null
           id: string
           is_analyzed: boolean | null
+          message_clean: string | null
           message_id: string | null
+          month: number | null
+          polarity: number | null
           raw_content: string | null
+          recipient: string | null
+          recipient_list: string[] | null
+          sender_id: string | null
           sentiment_category: string | null
           sentiment_score: number | null
+          source_file: string | null
           subject: string | null
+          thread_id: string | null
+          thread_subject: string | null
           to_emails: string[] | null
           to_names: string[] | null
           topics: string[] | null
+          year: number | null
         }
         Insert: {
           bcc_emails?: string[] | null
@@ -46,14 +92,24 @@ export type Database = {
           from_name?: string | null
           id?: string
           is_analyzed?: boolean | null
+          message_clean?: string | null
           message_id?: string | null
+          month?: number | null
+          polarity?: number | null
           raw_content?: string | null
+          recipient?: string | null
+          recipient_list?: string[] | null
+          sender_id?: string | null
           sentiment_category?: string | null
           sentiment_score?: number | null
+          source_file?: string | null
           subject?: string | null
+          thread_id?: string | null
+          thread_subject?: string | null
           to_emails?: string[] | null
           to_names?: string[] | null
           topics?: string[] | null
+          year?: number | null
         }
         Update: {
           bcc_emails?: string[] | null
@@ -66,14 +122,24 @@ export type Database = {
           from_name?: string | null
           id?: string
           is_analyzed?: boolean | null
+          message_clean?: string | null
           message_id?: string | null
+          month?: number | null
+          polarity?: number | null
           raw_content?: string | null
+          recipient?: string | null
+          recipient_list?: string[] | null
+          sender_id?: string | null
           sentiment_category?: string | null
           sentiment_score?: number | null
+          source_file?: string | null
           subject?: string | null
+          thread_id?: string | null
+          thread_subject?: string | null
           to_emails?: string[] | null
           to_names?: string[] | null
           topics?: string[] | null
+          year?: number | null
         }
         Relationships: []
       }
