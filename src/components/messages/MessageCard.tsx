@@ -25,19 +25,14 @@ export function MessageCard({ email }: MessageCardProps) {
   };
 
   return (
-    <ScrollArea className="h-[600px] pr-4">
+    <ScrollArea className="h-full max-h-[60vh] pr-4">
       <div className="space-y-4">
-        {/* Subject */}
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">
-            {email.subject || "(No subject)"}
-          </h3>
-          {email.thread_subject && email.thread_subject !== email.subject && (
-            <p className="text-sm text-muted-foreground">
-              Thread: {email.thread_subject}
-            </p>
-          )}
-        </div>
+        {/* Thread info */}
+        {email.thread_subject && email.thread_subject !== email.subject && (
+          <p className="text-sm text-muted-foreground">
+            Thread: {email.thread_subject}
+          </p>
+        )}
 
         <Separator />
 

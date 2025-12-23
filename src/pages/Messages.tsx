@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Search, Filter, Mail, Calendar, TrendingUp } from "lucide-react";
+import { ArrowLeft, Search, Mail, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import type { Email } from "@/types/graph";
+import { ExpandableMessageCard } from "@/components/messages/ExpandableMessageCard";
 import { MessageCard } from "@/components/messages/MessageCard";
 
 export default function Messages() {
@@ -30,12 +30,10 @@ export default function Messages() {
       let query = supabase.from("emails").select("*");
       
       if (sender && recipient) {
-        // Edge click - messages between two people
         query = query.or(
           `and(sender_id.eq.${sender},recipient.eq.${recipient}),and(sender_id.eq.${recipient},recipient.eq.${sender})`
         );
       } else if (person) {
-        // Node click - all messages for a person
         query = query.or(`sender_id.eq.${person},recipient.eq.${person}`);
       }
       
@@ -76,27 +74,6 @@ export default function Messages() {
     return "All Messages";
   };
 
-  const getSentimentBadge = (polarity: number | null, category: string | null) => {
-    if (polarity === null) return null;
-    
-    let variant: "default" | "secondary" | "destructive" | "outline" = "secondary";
-    let label = category || "neutral";
-    
-    if (polarity < -0.1) {
-      variant = "destructive";
-      label = category || "negative";
-    } else if (polarity > 0.1) {
-      variant = "default";
-      label = category || "positive";
-    }
-    
-    return (
-      <Badge variant={variant} className="text-xs">
-        {label} ({polarity.toFixed(2)})
-      </Badge>
-    );
-  };
-
   const stats = {
     total: filteredEmails.length,
     positive: filteredEmails.filter(e => (e.polarity || 0) > 0.1).length,
@@ -106,13 +83,18 @@ export default function Messages() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-6">
+      <div className="container mx-auto p-6 max-w-7xl">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-            <ArrowLeft className="h-5 w-5" />
+          <Button 
+            variant="outline" 
+            onClick={() => navigate("/")}
+            className="gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Graph
           </Button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
             <p className="text-muted-foreground text-sm">
               {stats.total} messages found
@@ -121,39 +103,47 @@ export default function Messages() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <Card>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <Card className="bg-card">
             <CardContent className="p-4 flex items-center gap-3">
-              <Mail className="h-5 w-5 text-primary" />
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Mail className="h-5 w-5 text-primary" />
+              </div>
               <div>
-                <p className="text-2xl font-bold">{stats.total}</p>
+                <p className="text-2xl font-bold text-foreground">{stats.total}</p>
                 <p className="text-xs text-muted-foreground">Total</p>
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="bg-card">
             <CardContent className="p-4 flex items-center gap-3">
-              <TrendingUp className="h-5 w-5 text-green-500" />
+              <div className="p-2 rounded-lg bg-green-500/10">
+                <TrendingUp className="h-5 w-5 text-green-500" />
+              </div>
               <div>
-                <p className="text-2xl font-bold">{stats.positive}</p>
+                <p className="text-2xl font-bold text-foreground">{stats.positive}</p>
                 <p className="text-xs text-muted-foreground">Positive</p>
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="bg-card">
             <CardContent className="p-4 flex items-center gap-3">
-              <TrendingUp className="h-5 w-5 text-red-500 rotate-180" />
+              <div className="p-2 rounded-lg bg-red-500/10">
+                <TrendingDown className="h-5 w-5 text-red-500" />
+              </div>
               <div>
-                <p className="text-2xl font-bold">{stats.negative}</p>
+                <p className="text-2xl font-bold text-foreground">{stats.negative}</p>
                 <p className="text-xs text-muted-foreground">Negative</p>
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="bg-card">
             <CardContent className="p-4 flex items-center gap-3">
-              <Filter className="h-5 w-5 text-muted-foreground" />
+              <div className="p-2 rounded-lg bg-muted">
+                <Minus className="h-5 w-5 text-muted-foreground" />
+              </div>
               <div>
-                <p className="text-2xl font-bold">{stats.neutral}</p>
+                <p className="text-2xl font-bold text-foreground">{stats.neutral}</p>
                 <p className="text-xs text-muted-foreground">Neutral</p>
               </div>
             </CardContent>
@@ -171,72 +161,44 @@ export default function Messages() {
           />
         </div>
 
-        {/* Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Email List */}
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="text-lg">Messages</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[600px]">
-                {loading ? (
-                  <div className="p-4 text-center text-muted-foreground">
-                    Loading messages...
-                  </div>
-                ) : filteredEmails.length === 0 ? (
-                  <div className="p-4 text-center text-muted-foreground">
-                    No messages found
-                  </div>
-                ) : (
-                  <div className="divide-y">
-                    {filteredEmails.map((email) => (
-                      <div
-                        key={email.id}
-                        className={`p-4 cursor-pointer hover:bg-accent/50 transition-colors ${
-                          selectedEmail?.id === email.id ? "bg-accent" : ""
-                        }`}
-                        onClick={() => setSelectedEmail(email)}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate text-foreground">
-                              {email.subject || "(No subject)"}
-                            </p>
-                            <p className="text-sm text-muted-foreground truncate">
-                              {email.sender_id} → {email.recipient}
-                            </p>
-                          </div>
-                          {getSentimentBadge(email.polarity, email.sentiment_category)}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          {email.date ? new Date(email.date).toLocaleDateString() : "Unknown date"}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
-            </CardContent>
-          </Card>
+        {/* Cards Grid */}
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-muted-foreground">Loading messages...</div>
+          </div>
+        ) : filteredEmails.length === 0 ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-muted-foreground">No messages found</div>
+          </div>
+        ) : (
+          <ScrollArea className="h-[calc(100vh-340px)]">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-4">
+              {filteredEmails.map((email) => (
+                <ExpandableMessageCard
+                  key={email.id}
+                  email={email}
+                  onClick={() => setSelectedEmail(email)}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+        )}
 
-          {/* Email Detail */}
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="text-lg">Message Detail</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {selectedEmail ? (
+        {/* Expanded Message Dialog */}
+        <Dialog open={!!selectedEmail} onOpenChange={(open) => !open && setSelectedEmail(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+            <DialogHeader className="shrink-0">
+              <DialogTitle className="text-lg font-semibold">
+                {selectedEmail?.subject || "(No subject)"}
+              </DialogTitle>
+            </DialogHeader>
+            {selectedEmail && (
+              <div className="flex-1 overflow-hidden">
                 <MessageCard email={selectedEmail} />
-              ) : (
-                <div className="h-[600px] flex items-center justify-center text-muted-foreground">
-                  Select a message to view details
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
