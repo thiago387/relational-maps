@@ -358,7 +358,14 @@ function RelationshipDetail({
 
       {link.avgPolarity !== null && (
         <div className="bg-muted/50 rounded-md p-3">
-          <p className="text-xs text-muted-foreground mb-1">Average Polarity</p>
+          <p className="text-xs text-muted-foreground mb-1">
+            Weighted Average Polarity
+            {link.mergedEdgeCount && link.mergedEdgeCount > 1 && (
+              <span className="ml-1 text-primary">
+                (from {link.mergedEdgeCount} data points)
+              </span>
+            )}
+          </p>
           <div className="flex items-center gap-2">
             <div 
               className="w-4 h-4 rounded-full"
@@ -373,6 +380,9 @@ function RelationshipDetail({
               </Badge>
             )}
           </div>
+          {totalEmails < 3 && (
+            <p className="text-xs text-amber-500 mt-1">⚠ Low data - sentiment may be less reliable</p>
+          )}
         </div>
       )}
 

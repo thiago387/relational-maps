@@ -1,6 +1,17 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Person, Relationship, Email, ProcessingJob, GraphData, GraphNode, GraphLink, FilterState, Edge } from '@/types/graph';
 import { detectCommunities } from '@/lib/communityDetection';
+import { buildIdNormalizationMap } from '@/lib/utils';
+
+// Merged edge type for internal use
+interface MergedEdge {
+  sender_id: string;
+  recipient_id: string;
+  message_count: number;
+  avg_polarity: number | null;
+  edge_sentiment: string | null;
+  original_edge_count: number;
+}
 
 // Community colors - distinct colors for different communities
 const COMMUNITY_COLORS = [
@@ -108,16 +119,79 @@ export async function fetchStats(): Promise<{
   };
 }
 
+// Merge edges with same sender-recipient pair and calculate weighted average polarity
+function mergeEdges(edges: Edge[]): MergedEdge[] {
+  // First, collect all unique IDs and build normalization map
+  const allIds = new Set<string>();
+  edges.forEach(edge => {
+    allIds.add(edge.sender_id);
+    allIds.add(edge.recipient_id);
+  });
+  const idMap = buildIdNormalizationMap(Array.from(allIds));
+  
+  // Group edges by normalized sender-recipient pairs
+  const edgeGroups = new Map<string, Edge[]>();
+  edges.forEach(edge => {
+    const normalizedSender = idMap.get(edge.sender_id) || edge.sender_id;
+    const normalizedRecipient = idMap.get(edge.recipient_id) || edge.recipient_id;
+    const key = `${normalizedSender}→${normalizedRecipient}`;
+    
+    if (!edgeGroups.has(key)) edgeGroups.set(key, []);
+    edgeGroups.get(key)!.push(edge);
+  });
+  
+  // Merge edges with weighted average polarity
+  const mergedEdges: MergedEdge[] = [];
+  edgeGroups.forEach((group, key) => {
+    const [sender, recipient] = key.split('→');
+    const totalMessages = group.reduce((sum, e) => sum + (e.message_count || 1), 0);
+    
+    // Calculate weighted average polarity
+    let weightedPolarity: number | null = null;
+    const edgesWithPolarity = group.filter(e => e.avg_polarity !== null);
+    if (edgesWithPolarity.length > 0) {
+      const totalWeight = edgesWithPolarity.reduce((sum, e) => sum + (e.message_count || 1), 0);
+      weightedPolarity = edgesWithPolarity.reduce((sum, e) => 
+        sum + (e.avg_polarity || 0) * (e.message_count || 1), 0) / totalWeight;
+    }
+    
+    // Determine sentiment category based on weighted polarity
+    let edgeSentiment: string | null = null;
+    if (weightedPolarity !== null) {
+      edgeSentiment = weightedPolarity > 0.1 ? 'positive' : weightedPolarity < -0.1 ? 'negative' : 'neutral';
+    }
+    
+    mergedEdges.push({
+      sender_id: sender,
+      recipient_id: recipient,
+      message_count: totalMessages,
+      avg_polarity: weightedPolarity,
+      edge_sentiment: edgeSentiment,
+      original_edge_count: group.length,
+    });
+  });
+  
+  return mergedEdges;
+}
+
 // Build graph from pre-computed edges (new method)
 export function buildGraphFromEdges(
   edges: Edge[],
   filters: FilterState
 ): GraphData {
-  // Detect communities from ALL edges BEFORE filtering
-  const communityMap = detectCommunities(edges);
+  // Merge edges first for accurate sentiment calculation
+  const mergedEdges = mergeEdges(edges);
   
-  // Filter edges
-  const filteredEdges = edges.filter(edge => {
+  // Detect communities from merged edges
+  const edgesForCommunity = mergedEdges.map(e => ({
+    sender_id: e.sender_id,
+    recipient_id: e.recipient_id,
+    message_count: e.message_count,
+  }));
+  const communityMap = detectCommunities(edgesForCommunity as any);
+  
+  // Filter merged edges
+  const filteredEdges = mergedEdges.filter(edge => {
     // Min emails filter
     if (edge.message_count < filters.minEmails) return false;
     
@@ -145,12 +219,21 @@ export function buildGraphFromEdges(
     return true;
   });
 
-  // Build nodes from edges with community info
+  // Build nodes with proper sentiment aggregation
   const nodeMap = new Map<string, GraphNode>();
+  const nodeSentimentStats = new Map<string, { totalPolarity: number; totalMessages: number }>();
   
   filteredEdges.forEach(edge => {
     const senderCommunity = communityMap.get(edge.sender_id) ?? null;
     const recipientCommunity = communityMap.get(edge.recipient_id) ?? null;
+    
+    // Track sentiment stats for sender (sent emails contribute to their sentiment)
+    if (edge.avg_polarity !== null) {
+      const senderStats = nodeSentimentStats.get(edge.sender_id) || { totalPolarity: 0, totalMessages: 0 };
+      senderStats.totalPolarity += edge.avg_polarity * edge.message_count;
+      senderStats.totalMessages += edge.message_count;
+      nodeSentimentStats.set(edge.sender_id, senderStats);
+    }
     
     // Sender node
     if (!nodeMap.has(edge.sender_id)) {
@@ -162,7 +245,7 @@ export function buildGraphFromEdges(
         color: getCommunityColor(senderCommunity),
         communityId: senderCommunity,
         emailCount: edge.message_count,
-        avgSentiment: edge.avg_polarity,
+        avgSentiment: null,
       });
     } else {
       const existing = nodeMap.get(edge.sender_id)!;
@@ -179,11 +262,19 @@ export function buildGraphFromEdges(
         color: getCommunityColor(recipientCommunity),
         communityId: recipientCommunity,
         emailCount: edge.message_count,
-        avgSentiment: edge.avg_polarity,
+        avgSentiment: null,
       });
     } else {
       const existing = nodeMap.get(edge.recipient_id)!;
       existing.emailCount += edge.message_count;
+    }
+  });
+
+  // Calculate and assign average sentiment to each node
+  nodeMap.forEach((node, id) => {
+    const stats = nodeSentimentStats.get(id);
+    if (stats && stats.totalMessages > 0) {
+      node.avgSentiment = stats.totalPolarity / stats.totalMessages;
     }
   });
 
@@ -194,7 +285,7 @@ export function buildGraphFromEdges(
     nodes.push(node);
   });
 
-  // Build links
+  // Build links from merged edges
   const links: GraphLink[] = filteredEdges.map(edge => ({
     source: edge.sender_id,
     target: edge.recipient_id,
@@ -207,6 +298,7 @@ export function buildGraphFromEdges(
     curvature: 0.2,
     avgPolarity: edge.avg_polarity,
     edgeSentiment: edge.edge_sentiment,
+    mergedEdgeCount: edge.original_edge_count,
   }));
 
   return { nodes, links };
