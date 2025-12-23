@@ -1,14 +1,15 @@
-import { Calendar, User, Mail } from "lucide-react";
+import { Calendar, User, Mail, Send, Inbox } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { Email } from "@/types/graph";
 
 interface ExpandableMessageCardProps {
   email: Email;
+  person?: string | null;
   onClick: () => void;
 }
 
-export function ExpandableMessageCard({ email, onClick }: ExpandableMessageCardProps) {
+export function ExpandableMessageCard({ email, person, onClick }: ExpandableMessageCardProps) {
   const getSentimentVariant = (polarity: number | null): "default" | "secondary" | "destructive" => {
     if (polarity === null) return "secondary";
     if (polarity < -0.1) return "destructive";
@@ -24,20 +25,49 @@ export function ExpandableMessageCard({ email, onClick }: ExpandableMessageCardP
     return "neutral";
   };
 
+  // Determine if this email was sent or received by the person being viewed
+  const isSent = person && email.sender_id === person;
+  const isReceived = person && email.recipient === person;
+
   return (
     <Card 
       className="cursor-pointer transition-all duration-200 hover:shadow-lg hover:scale-[1.02] hover:border-primary/50 bg-card"
       onClick={onClick}
     >
       <CardContent className="p-4 space-y-3">
-        {/* Subject */}
+        {/* Subject and badges row */}
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-semibold text-foreground line-clamp-2 flex-1">
             {email.subject || "(No subject)"}
           </h3>
-          <Badge variant={getSentimentVariant(email.polarity)} className="shrink-0 text-xs">
-            {getSentimentLabel(email.polarity, email.sentiment_category)}
-          </Badge>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Direction badge - only show when viewing a specific person */}
+            {person && (isSent || isReceived) && (
+              <Badge 
+                variant="outline" 
+                className={`text-xs gap-1 ${
+                  isSent 
+                    ? "border-blue-500/50 text-blue-500 bg-blue-500/10" 
+                    : "border-purple-500/50 text-purple-500 bg-purple-500/10"
+                }`}
+              >
+                {isSent ? (
+                  <>
+                    <Send className="h-3 w-3" />
+                    Sent
+                  </>
+                ) : (
+                  <>
+                    <Inbox className="h-3 w-3" />
+                    Received
+                  </>
+                )}
+              </Badge>
+            )}
+            <Badge variant={getSentimentVariant(email.polarity)} className="text-xs">
+              {getSentimentLabel(email.polarity, email.sentiment_category)}
+            </Badge>
+          </div>
         </div>
 
         {/* From / To */}

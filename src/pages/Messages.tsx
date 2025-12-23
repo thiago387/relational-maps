@@ -1,15 +1,24 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Search, Mail, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ArrowLeft, Search, Mail, TrendingUp, TrendingDown, Minus, Send, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { supabase } from "@/integrations/supabase/client";
 import type { Email } from "@/types/graph";
 import { ExpandableMessageCard } from "@/components/messages/ExpandableMessageCard";
 import { MessageCard } from "@/components/messages/MessageCard";
+
+type DirectionFilter = "all" | "sent" | "received";
+
+interface DirectionCounts {
+  sent: number;
+  received: number;
+  total: number;
+}
 
 export default function Messages() {
   const [searchParams] = useSearchParams();
@@ -18,11 +27,46 @@ export default function Messages() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [direction, setDirection] = useState<DirectionFilter>("all");
+  const [directionCounts, setDirectionCounts] = useState<DirectionCounts>({ sent: 0, received: 0, total: 0 });
 
   const sender = searchParams.get("sender");
   const recipient = searchParams.get("recipient");
   const person = searchParams.get("person");
 
+  // Fetch direction counts when person changes
+  useEffect(() => {
+    async function loadDirectionCounts() {
+      if (!person) {
+        setDirectionCounts({ sent: 0, received: 0, total: 0 });
+        return;
+      }
+
+      const [sentResult, receivedResult] = await Promise.all([
+        supabase
+          .from("emails")
+          .select("*", { count: "exact", head: true })
+          .eq("sender_id", person),
+        supabase
+          .from("emails")
+          .select("*", { count: "exact", head: true })
+          .eq("recipient", person),
+      ]);
+
+      const sentCount = sentResult.count || 0;
+      const receivedCount = receivedResult.count || 0;
+
+      setDirectionCounts({
+        sent: sentCount,
+        received: receivedCount,
+        total: sentCount + receivedCount,
+      });
+    }
+
+    loadDirectionCounts();
+  }, [person]);
+
+  // Fetch emails based on direction filter
   useEffect(() => {
     async function loadEmails() {
       setLoading(true);
@@ -30,11 +74,19 @@ export default function Messages() {
       let query = supabase.from("emails").select("*");
       
       if (sender && recipient) {
+        // Two-person conversation view - no direction filter
         query = query.or(
           `and(sender_id.eq.${sender},recipient.eq.${recipient}),and(sender_id.eq.${recipient},recipient.eq.${sender})`
         );
       } else if (person) {
-        query = query.or(`sender_id.eq.${person},recipient.eq.${person}`);
+        // Single person view with direction filter
+        if (direction === "sent") {
+          query = query.eq("sender_id", person);
+        } else if (direction === "received") {
+          query = query.eq("recipient", person);
+        } else {
+          query = query.or(`sender_id.eq.${person},recipient.eq.${person}`);
+        }
       }
       
       query = query.order("date", { ascending: false }).limit(500);
@@ -51,7 +103,7 @@ export default function Messages() {
     }
     
     loadEmails();
-  }, [sender, recipient, person]);
+  }, [sender, recipient, person, direction]);
 
   const filteredEmails = emails.filter(email => {
     if (!searchQuery) return true;
@@ -81,6 +133,8 @@ export default function Messages() {
     neutral: filteredEmails.filter(e => (e.polarity || 0) >= -0.1 && (e.polarity || 0) <= 0.1).length,
   };
 
+  const showDirectionFilter = !!person && !sender && !recipient;
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-6 max-w-7xl">
@@ -97,10 +151,35 @@ export default function Messages() {
           <div className="flex-1">
             <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
             <p className="text-muted-foreground text-sm">
-              {stats.total} messages found
+              {directionCounts.total > 0 ? directionCounts.total.toLocaleString() : stats.total} messages total
             </p>
           </div>
         </div>
+
+        {/* Direction Filter - Only show for single person view */}
+        {showDirectionFilter && (
+          <div className="mb-6">
+            <ToggleGroup 
+              type="single" 
+              value={direction} 
+              onValueChange={(val) => val && setDirection(val as DirectionFilter)}
+              className="justify-start"
+            >
+              <ToggleGroupItem value="all" className="gap-2 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+                <Mail className="h-4 w-4" />
+                All ({directionCounts.total.toLocaleString()})
+              </ToggleGroupItem>
+              <ToggleGroupItem value="sent" className="gap-2 data-[state=on]:bg-blue-500 data-[state=on]:text-white">
+                <Send className="h-4 w-4" />
+                Sent ({directionCounts.sent.toLocaleString()})
+              </ToggleGroupItem>
+              <ToggleGroupItem value="received" className="gap-2 data-[state=on]:bg-purple-500 data-[state=on]:text-white">
+                <Inbox className="h-4 w-4" />
+                Received ({directionCounts.received.toLocaleString()})
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -111,7 +190,7 @@ export default function Messages() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="text-xs text-muted-foreground">Showing</p>
               </div>
             </CardContent>
           </Card>
@@ -171,12 +250,13 @@ export default function Messages() {
             <div className="text-muted-foreground">No messages found</div>
           </div>
         ) : (
-          <ScrollArea className="h-[calc(100vh-340px)]">
+          <ScrollArea className="h-[calc(100vh-420px)]">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-4">
               {filteredEmails.map((email) => (
                 <ExpandableMessageCard
                   key={email.id}
                   email={email}
+                  person={person}
                   onClick={() => setSelectedEmail(email)}
                 />
               ))}
