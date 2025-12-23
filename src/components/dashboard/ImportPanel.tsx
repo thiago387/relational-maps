@@ -4,96 +4,60 @@ import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/components/ui/use-toast';
 import { 
-  Play, 
   Loader2, 
   Trash2,
   RefreshCw,
   Database,
-  Zap
+  CheckCircle,
+  Mail,
+  GitBranch,
 } from 'lucide-react';
-import type { Email } from '@/types/graph';
-import { parseEmailCSV, type CSVParseProgress } from '@/lib/csvParser';
 
 interface ImportPanelProps {
-  onImport: (emails: Partial<Email>[]) => Promise<any>;
-  onAnalyze: (params: { batchSize?: number; jobId?: string }) => Promise<any>;
-  onCompute: () => Promise<any>;
+  onLoadData: (onProgress?: (stage: string, loaded: number, total: number) => void) => Promise<any>;
   onClear: () => Promise<any>;
   onRefresh: () => void;
-  isImporting: boolean;
-  isAnalyzing: boolean;
-  isComputing: boolean;
+  isLoadingData: boolean;
   isClearing: boolean;
   stats: {
     emailCount: number;
     analyzedCount: number;
     personCount: number;
     relationshipCount: number;
+    edgeCount?: number;
   } | undefined;
 }
 
 export function ImportPanel({
-  onImport,
-  onAnalyze,
-  onCompute,
+  onLoadData,
   onClear,
   onRefresh,
-  isImporting,
-  isAnalyzing,
-  isComputing,
+  isLoadingData,
   isClearing,
   stats,
 }: ImportPanelProps) {
   const { toast } = useToast();
-  const [isLoadingCSV, setIsLoadingCSV] = useState(false);
-  const [csvProgress, setCsvProgress] = useState<CSVParseProgress | null>(null);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
-  const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [loadProgress, setLoadProgress] = useState<{ stage: string; loaded: number; total: number } | null>(null);
 
-  const handleLoadCSV = async () => {
-    setIsLoadingCSV(true);
-    setCsvProgress({ phase: 'fetching', current: 0, total: 0, emailsFound: 0 });
-    
+  const handleLoadData = async () => {
     try {
       toast({
         title: 'Loading dataset...',
-        description: 'Parsing CSV file...',
+        description: 'This may take a moment for 71,000+ emails',
       });
       
-      const emails = await parseEmailCSV((progress) => {
-        setCsvProgress(progress);
+      const result = await onLoadData((stage, loaded, total) => {
+        setLoadProgress({ stage, loaded, total });
       });
       
-      if (emails.length === 0) {
-        throw new Error('No valid emails found in CSV');
-      }
-      
-      toast({
-        title: 'Importing emails...',
-        description: `Found ${emails.length} emails, inserting into database...`,
-      });
-      
-      // Import in batches to avoid timeout
-      const batchSize = 100;
-      let imported = 0;
-      
-      for (let i = 0; i < emails.length; i += batchSize) {
-        const batch = emails.slice(i, i + batchSize);
-        await onImport(batch);
-        imported += batch.length;
-        
-        setCsvProgress({
-          phase: 'parsing',
-          current: imported,
-          total: emails.length,
-          emailsFound: imported,
+      if (result.success) {
+        toast({
+          title: 'Dataset loaded successfully!',
+          description: `Loaded ${result.edgeCount} edges and ${result.emailCount} emails`,
         });
+      } else {
+        throw new Error(result.error || 'Unknown error');
       }
-      
-      toast({
-        title: 'Dataset loaded successfully!',
-        description: `Imported ${emails.length} emails from CSV`,
-      });
       
       onRefresh();
     } catch (error) {
@@ -103,76 +67,7 @@ export function ImportPanel({
         variant: 'destructive',
       });
     } finally {
-      setIsLoadingCSV(false);
-      setCsvProgress(null);
-    }
-  };
-
-  const handleRunAnalysis = async () => {
-    if (!stats || stats.emailCount === 0) {
-      toast({
-        title: 'No emails to analyze',
-        description: 'Load the dataset first before running analysis',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsRunningPipeline(true);
-    setAnalysisProgress(0);
-
-    try {
-      // Run sentiment analysis in batches
-      let remaining = stats.emailCount - stats.analyzedCount;
-      let processed = stats.analyzedCount;
-
-      while (remaining > 0) {
-        const result = await onAnalyze({ batchSize: 10 });
-        
-        if (!result.success) {
-          if (result.error?.includes('Rate limit')) {
-            toast({
-              title: 'Rate limited',
-              description: 'Waiting before continuing...',
-            });
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            continue;
-          }
-          throw new Error(result.error || 'Analysis failed');
-        }
-
-        processed += result.processed || 0;
-        remaining = result.remaining || 0;
-        
-        setAnalysisProgress(Math.round((processed / stats.emailCount) * 100));
-
-        // Small delay between batches
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
-      toast({
-        title: 'Analysis complete',
-        description: 'Now computing graph relationships...',
-      });
-
-      // Compute graph
-      await onCompute();
-
-      toast({
-        title: 'Pipeline complete!',
-        description: 'Graph is ready to explore!',
-      });
-
-      onRefresh();
-    } catch (error) {
-      toast({
-        title: 'Analysis error',
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsRunningPipeline(false);
-      setAnalysisProgress(0);
+      setLoadProgress(null);
     }
   };
 
@@ -183,7 +78,7 @@ export function ImportPanel({
       await onClear();
       toast({
         title: 'Data cleared',
-        description: 'All emails and analysis data has been deleted',
+        description: 'All data has been deleted',
       });
       onRefresh();
     } catch (error) {
@@ -195,34 +90,24 @@ export function ImportPanel({
     }
   };
 
-  const isProcessing = isImporting || isAnalyzing || isComputing || isClearing || isRunningPipeline || isLoadingCSV;
-  const hasData = stats && stats.emailCount > 0;
-  const needsAnalysis = stats && stats.emailCount > stats.analyzedCount;
+  const isProcessing = isLoadingData || isClearing;
+  const hasData = stats && (stats.emailCount > 0 || (stats.edgeCount || 0) > 0);
 
   const getProgressPercent = (): number => {
-    if (csvProgress) {
-      if (csvProgress.phase === 'complete') return 100;
-      return csvProgress.total > 0 ? Math.round((csvProgress.current / csvProgress.total) * 100) : 0;
-    }
-    return analysisProgress;
+    if (!loadProgress || loadProgress.total === 0) return 0;
+    return Math.round((loadProgress.loaded / loadProgress.total) * 100);
   };
 
   const getProgressLabel = (): string => {
-    if (csvProgress) {
-      if (csvProgress.phase === 'fetching') return 'Fetching CSV...';
-      if (csvProgress.phase === 'parsing') return `Parsing: ${csvProgress.current}/${csvProgress.total} (${csvProgress.emailsFound} emails)`;
-      return 'Complete';
-    }
-    if (isRunningPipeline) {
-      return `Analyzing: ${analysisProgress}%`;
-    }
-    return '';
+    if (!loadProgress) return '';
+    const stageLabel = loadProgress.stage === 'edges' ? 'Loading edges' : 'Loading emails';
+    return `${stageLabel}: ${loadProgress.loaded.toLocaleString()}/${loadProgress.total.toLocaleString()}`;
   };
 
   return (
     <Card className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">Data Import & Analysis</h3>
+        <h3 className="font-semibold text-foreground">Epstein Email Dataset</h3>
         <Button 
           variant="ghost" 
           size="sm" 
@@ -233,15 +118,31 @@ export function ImportPanel({
         </Button>
       </div>
 
+      {/* Stats Display */}
+      {hasData && (
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Mail className="h-4 w-4" />
+            <span>{(stats?.emailCount || 0).toLocaleString()} emails</span>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <GitBranch className="h-4 w-4" />
+            <span>{(stats?.edgeCount || stats?.relationshipCount || 0).toLocaleString()} connections</span>
+          </div>
+        </div>
+      )}
+
       {/* Load Dataset Section */}
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Load the Epstein email dataset (~5,000 email threads) from the bundled CSV file.
-        </p>
+        {!hasData && (
+          <p className="text-sm text-muted-foreground">
+            Load pre-analyzed Epstein email dataset with sentiment polarity already computed.
+          </p>
+        )}
         
-        {(isLoadingCSV || csvProgress) && (
+        {loadProgress && (
           <div className="space-y-2">
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between text-sm text-foreground">
               <span>{getProgressLabel()}</span>
               <span>{getProgressPercent()}%</span>
             </div>
@@ -250,76 +151,32 @@ export function ImportPanel({
         )}
         
         <Button 
-          onClick={handleLoadCSV} 
+          onClick={handleLoadData} 
           disabled={isProcessing}
           className="w-full"
           variant={hasData ? "outline" : "default"}
         >
-          {isLoadingCSV ? (
+          {isLoadingData ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : hasData ? (
+            <CheckCircle className="h-4 w-4 mr-2" />
           ) : (
             <Database className="h-4 w-4 mr-2" />
           )}
-          {isLoadingCSV ? 'Loading...' : hasData ? 'Reload Dataset' : 'Load Epstein Emails'}
+          {isLoadingData 
+            ? 'Loading...' 
+            : hasData 
+              ? 'Reload Dataset' 
+              : 'Load Epstein Dataset'}
         </Button>
+
+        {hasData && (
+          <p className="text-xs text-muted-foreground text-center">
+            <CheckCircle className="h-3 w-3 inline mr-1 text-green-500" />
+            Pre-computed sentiment analysis - graph ready instantly!
+          </p>
+        )}
       </div>
-
-      {/* Analysis Pipeline Section */}
-      {hasData && (
-        <div className="space-y-3 pt-2 border-t border-border">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Analysis Pipeline</span>
-            {needsAnalysis && (
-              <span className="text-xs text-muted-foreground">
-                {stats.analyzedCount}/{stats.emailCount} analyzed
-              </span>
-            )}
-          </div>
-
-          {isRunningPipeline && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Analyzing emails...</span>
-                <span>{analysisProgress}%</span>
-              </div>
-              <Progress value={analysisProgress} />
-            </div>
-          )}
-
-          <Button
-            onClick={handleRunAnalysis}
-            disabled={isProcessing || !needsAnalysis}
-            className="w-full"
-            variant={needsAnalysis ? "default" : "outline"}
-          >
-            {isRunningPipeline ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Zap className="h-4 w-4 mr-2" />
-            )}
-            {isRunningPipeline 
-              ? 'Running...' 
-              : needsAnalysis 
-                ? 'Run Analysis Pipeline' 
-                : 'Analysis Complete'}
-          </Button>
-
-          <Button
-            onClick={() => onCompute()}
-            disabled={isProcessing}
-            variant="outline"
-            className="w-full"
-            size="sm"
-          >
-            {isComputing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4 mr-2" />
-            )}
-            Recompute Graph Only
-          </Button>
-        </div>
-      )}
 
       {/* Clear Data Section */}
       {hasData && (

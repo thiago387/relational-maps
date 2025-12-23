@@ -5,13 +5,13 @@ import {
   fetchRelationships,
   fetchEmails,
   fetchStats,
+  fetchEdges,
   buildGraphData,
-  analyzeSentiment,
-  computeGraph,
-  importEmails,
+  buildGraphFromEdges,
   clearAllData,
 } from '@/lib/api/graph';
-import type { FilterState } from '@/types/graph';
+import { loadPrecomputedData } from '@/lib/precomputedDataLoader';
+import type { FilterState, Edge } from '@/types/graph';
 
 export function useGraphData() {
   const queryClient = useQueryClient();
@@ -25,11 +25,19 @@ export function useGraphData() {
     showNegativeOnly: false,
   });
 
+  // Fetch edges (pre-computed data)
+  const { data: edges = [], isLoading: edgesLoading } = useQuery({
+    queryKey: ['edges'],
+    queryFn: fetchEdges,
+  });
+
+  // Legacy: fetch persons (for compatibility)
   const { data: persons = [], isLoading: personsLoading } = useQuery({
     queryKey: ['persons'],
     queryFn: fetchPersons,
   });
 
+  // Legacy: fetch relationships (for compatibility)
   const { data: relationships = [], isLoading: relationshipsLoading } = useQuery({
     queryKey: ['relationships'],
     queryFn: fetchRelationships,
@@ -45,9 +53,23 @@ export function useGraphData() {
     queryFn: fetchStats,
   });
 
+  // Build graph from pre-computed edges if available, otherwise fall back to persons/relationships
   const graphData = useMemo(() => {
+    if (edges.length > 0) {
+      return buildGraphFromEdges(edges, filters);
+    }
     return buildGraphData(persons, relationships, filters);
-  }, [persons, relationships, filters]);
+  }, [edges, persons, relationships, filters]);
+
+  // Get unique person IDs from edges for dropdown/search
+  const personIds = useMemo(() => {
+    const ids = new Set<string>();
+    edges.forEach(edge => {
+      ids.add(edge.sender_id);
+      ids.add(edge.recipient_id);
+    });
+    return Array.from(ids).sort();
+  }, [edges]);
 
   const communities = useMemo(() => {
     const uniqueCommunities = new Set(persons.map(p => p.community_id).filter(c => c !== null));
@@ -68,31 +90,12 @@ export function useGraphData() {
     ] as [Date, Date];
   }, [relationships]);
 
-
-  const analyzeMutation = useMutation({
-    mutationFn: ({ batchSize, jobId }: { batchSize?: number; jobId?: string }) => 
-      analyzeSentiment(batchSize, jobId),
+  // Load pre-computed data mutation
+  const loadDataMutation = useMutation({
+    mutationFn: (onProgress?: (stage: string, loaded: number, total: number) => void) => 
+      loadPrecomputedData(onProgress),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['emails'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-
-  const computeMutation = useMutation({
-    mutationFn: computeGraph,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['persons'] });
-      queryClient.invalidateQueries({ queryKey: ['relationships'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-
-  const importMutation = useMutation({
-    mutationFn: importEmails,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['emails'] });
-      queryClient.invalidateQueries({ queryKey: ['persons'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
+      queryClient.invalidateQueries();
     },
   });
 
@@ -111,10 +114,12 @@ export function useGraphData() {
     // Data
     persons,
     relationships,
+    edges,
     emails,
     stats,
     graphData,
     communities,
+    personIds,
     dateRange,
     
     // Filters
@@ -122,17 +127,11 @@ export function useGraphData() {
     setFilters,
     
     // Loading states
-    isLoading: personsLoading || relationshipsLoading || emailsLoading || statsLoading,
+    isLoading: edgesLoading || personsLoading || relationshipsLoading || emailsLoading || statsLoading,
     
     // Mutations
-    analyze: analyzeMutation.mutateAsync,
-    isAnalyzing: analyzeMutation.isPending,
-    
-    compute: computeMutation.mutateAsync,
-    isComputing: computeMutation.isPending,
-    
-    importEmails: importMutation.mutateAsync,
-    isImporting: importMutation.isPending,
+    loadData: loadDataMutation.mutateAsync,
+    isLoadingData: loadDataMutation.isPending,
     
     clearData: clearMutation.mutateAsync,
     isClearing: clearMutation.isPending,
