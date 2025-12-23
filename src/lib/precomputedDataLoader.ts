@@ -1,43 +1,34 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { RawEdgeRow, RawEmailRow } from "@/types/graph";
+import Papa from "papaparse";
 
 const BATCH_SIZE = 500;
 
-// Parse CSV text into rows
-function parseCSV(text: string): string[][] {
-  const lines = text.split('\n');
-  const result: string[][] = [];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    
-    const row: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    
-    for (let j = 0; j < line.length; j++) {
-      const char = line[j];
-      
-      if (char === '"') {
-        if (inQuotes && line[j + 1] === '"') {
-          current += '"';
-          j++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        row.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    row.push(current);
-    result.push(row);
-  }
-  
-  return result;
+interface EdgeRow {
+  sender_id: string;
+  recipient_id: string;
+  message_count: string;
+  avg_polarity: string;
+  edge_sentiment: string;
+  weight_norm: string;
+  edge_width: string;
+}
+
+interface EmailRow {
+  thread_id: string;
+  sender: string;
+  recipient: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  year: string;
+  month: string;
+  thread_subject: string;
+  source_file: string;
+  message_clean: string;
+  sender_id: string;
+  recipient_list: string;
+  polarity: string;
+  sentiment: string;
 }
 
 // Load edges from CSV
@@ -47,45 +38,50 @@ export async function loadEdgesFromCSV(
   try {
     const response = await fetch('/email_edges.csv');
     const text = await response.text();
-    const rows = parseCSV(text);
     
-    if (rows.length < 2) {
-      return { success: false, count: 0, error: 'No data in CSV' };
+    const parseResult = Papa.parse<EdgeRow>(text, {
+      header: true,
+      skipEmptyLines: true,
+    });
+    
+    if (parseResult.errors.length > 0) {
+      console.warn('CSV parse warnings:', parseResult.errors.slice(0, 5));
     }
     
-    const headers = rows[0];
-    const dataRows = rows.slice(1);
+    const dataRows = parseResult.data;
     const total = dataRows.length;
+    
+    if (total === 0) {
+      return { success: false, count: 0, error: 'No data in CSV' };
+    }
     
     // Clear existing edges
     await supabase.from('edges').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     
     let loaded = 0;
+    let inserted = 0;
     
     for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
       const batch = dataRows.slice(i, i + BATCH_SIZE);
       
-      const edges = batch.map(row => {
-        const obj: Record<string, string> = {};
-        headers.forEach((h, idx) => {
-          obj[h.trim()] = row[idx]?.trim() || '';
-        });
-        
-        return {
-          sender_id: obj.sender_id || '',
-          recipient_id: obj.recipient_id || '',
-          message_count: parseInt(obj.message_count) || 0,
-          avg_polarity: obj.avg_polarity ? parseFloat(obj.avg_polarity) : null,
-          edge_sentiment: obj.edge_sentiment || null,
-          weight_norm: obj.weight_norm ? parseFloat(obj.weight_norm) : null,
-          edge_width: obj.edge_width ? parseFloat(obj.edge_width) : null,
-        };
-      }).filter(e => e.sender_id && e.recipient_id);
+      const edges = batch
+        .filter(row => row.sender_id && row.recipient_id)
+        .map(row => ({
+          sender_id: row.sender_id?.trim() || '',
+          recipient_id: row.recipient_id?.trim() || '',
+          message_count: parseInt(row.message_count) || 0,
+          avg_polarity: row.avg_polarity ? parseFloat(row.avg_polarity) : null,
+          edge_sentiment: row.edge_sentiment?.trim() || null,
+          weight_norm: row.weight_norm ? parseFloat(row.weight_norm) : null,
+          edge_width: row.edge_width ? parseFloat(row.edge_width) : null,
+        }));
       
       if (edges.length > 0) {
         const { error } = await supabase.from('edges').insert(edges);
         if (error) {
           console.error('Error inserting edges batch:', error);
+        } else {
+          inserted += edges.length;
         }
       }
       
@@ -93,7 +89,7 @@ export async function loadEdgesFromCSV(
       onProgress?.(loaded, total);
     }
     
-    return { success: true, count: loaded };
+    return { success: true, count: inserted };
   } catch (error) {
     console.error('Error loading edges:', error);
     return { success: false, count: 0, error: String(error) };
@@ -107,81 +103,92 @@ export async function loadEmailsFromCSV(
   try {
     const response = await fetch('/emails_with_polarity.csv');
     const text = await response.text();
-    const rows = parseCSV(text);
     
-    if (rows.length < 2) {
-      return { success: false, count: 0, error: 'No data in CSV' };
+    const parseResult = Papa.parse<EmailRow>(text, {
+      header: true,
+      skipEmptyLines: true,
+    });
+    
+    if (parseResult.errors.length > 0) {
+      console.warn('CSV parse warnings (first 5):', parseResult.errors.slice(0, 5));
     }
     
-    const headers = rows[0];
-    const dataRows = rows.slice(1);
+    const dataRows = parseResult.data;
     const total = dataRows.length;
+    
+    console.log(`Parsed ${total} email rows from CSV`);
+    
+    if (total === 0) {
+      return { success: false, count: 0, error: 'No data in CSV' };
+    }
     
     // Clear existing emails
     await supabase.from('emails').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     
     let loaded = 0;
+    let inserted = 0;
     
     for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
       const batch = dataRows.slice(i, i + BATCH_SIZE);
       
-      const emails = batch.map(row => {
-        const obj: Record<string, string> = {};
-        headers.forEach((h, idx) => {
-          obj[h.trim()] = row[idx] || '';
-        });
-        
-        // Parse recipient_list from string like "['recipient1', 'recipient2']"
-        let recipientList: string[] = [];
-        try {
-          if (obj.recipient_list) {
-            const cleaned = obj.recipient_list.replace(/'/g, '"');
-            recipientList = JSON.parse(cleaned);
-          }
-        } catch {
-          recipientList = obj.recipient ? [obj.recipient] : [];
-        }
-        
-        // Parse timestamp
-        let dateVal: string | null = null;
-        if (obj.timestamp) {
+      const emails = batch
+        .filter(row => row.sender_id || row.sender) // Keep rows that have a sender
+        .map(row => {
+          // Parse recipient_list from string like "['recipient1', 'recipient2']"
+          let recipientList: string[] = [];
           try {
-            const d = new Date(obj.timestamp);
-            if (!isNaN(d.getTime())) {
-              dateVal = d.toISOString();
+            if (row.recipient_list) {
+              const cleaned = row.recipient_list.replace(/'/g, '"');
+              recipientList = JSON.parse(cleaned);
             }
           } catch {
-            dateVal = null;
+            recipientList = row.recipient ? [row.recipient] : [];
           }
-        }
-        
-        return {
-          thread_id: obj.thread_id || null,
-          sender_id: obj.sender_id || obj.sender || '',
-          from_email: obj.sender_id || obj.sender || '',
-          from_name: obj.sender || null,
-          recipient: obj.recipient || null,
-          recipient_list: recipientList,
-          to_emails: recipientList,
-          subject: obj.title || obj.thread_subject || null,
-          body: obj.message || null,
-          message_clean: obj.message_clean || null,
-          date: dateVal,
-          year: obj.year ? parseInt(obj.year) : null,
-          month: obj.month ? parseInt(obj.month) : null,
-          thread_subject: obj.thread_subject || null,
-          source_file: obj.source_file || null,
-          polarity: obj.polarity ? parseFloat(obj.polarity) : null,
-          sentiment_score: obj.polarity ? parseFloat(obj.polarity) : null,
-          sentiment_category: obj.sentiment || null,
-          is_analyzed: true,
-        };
-      }).filter(e => e.from_email);
+          
+          // Parse timestamp
+          let dateVal: string | null = null;
+          if (row.timestamp) {
+            try {
+              const d = new Date(row.timestamp);
+              if (!isNaN(d.getTime())) {
+                dateVal = d.toISOString();
+              }
+            } catch {
+              dateVal = null;
+            }
+          }
+          
+          const senderId = (row.sender_id || row.sender || '').trim();
+          
+          return {
+            thread_id: row.thread_id?.trim() || null,
+            sender_id: senderId,
+            from_email: senderId,
+            from_name: row.sender?.trim() || null,
+            recipient: row.recipient?.trim() || null,
+            recipient_list: recipientList,
+            to_emails: recipientList,
+            subject: row.title?.trim() || row.thread_subject?.trim() || null,
+            body: row.message || null,
+            message_clean: row.message_clean || null,
+            date: dateVal,
+            year: row.year ? parseInt(row.year) : null,
+            month: row.month ? parseInt(row.month) : null,
+            thread_subject: row.thread_subject?.trim() || null,
+            source_file: row.source_file?.trim() || null,
+            polarity: row.polarity ? parseFloat(row.polarity) : null,
+            sentiment_score: row.polarity ? parseFloat(row.polarity) : null,
+            sentiment_category: row.sentiment?.trim() || null,
+            is_analyzed: true,
+          };
+        });
       
       if (emails.length > 0) {
         const { error } = await supabase.from('emails').insert(emails);
         if (error) {
           console.error('Error inserting emails batch:', error);
+        } else {
+          inserted += emails.length;
         }
       }
       
@@ -189,7 +196,8 @@ export async function loadEmailsFromCSV(
       onProgress?.(loaded, total);
     }
     
-    return { success: true, count: loaded };
+    console.log(`Successfully inserted ${inserted} emails`);
+    return { success: true, count: inserted };
   } catch (error) {
     console.error('Error loading emails:', error);
     return { success: false, count: 0, error: String(error) };
