@@ -58,7 +58,7 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
 
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const label = node.name;
-    const fontSize = Math.max(12 / globalScale, 3);
+    const fontSize = Math.min(Math.max(10 / globalScale, 2), 14);
     const nodeR = Math.sqrt(node.val) * 2;
     
     // Node circle
@@ -84,11 +84,14 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
     }
     
     // Label
-    if (globalScale > 0.5) {
+    if (globalScale > 0.15) {
       ctx.font = `${fontSize}px Sans-Serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.lineWidth = 3 / globalScale;
+      ctx.strokeText(label, node.x, node.y + nodeR + 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.fillText(label, node.x, node.y + nodeR + 2);
     }
   }, [selectedNodeId]);
