@@ -108,7 +108,7 @@ export function Dashboard() {
         className="flex-1 overflow-hidden relative"
         style={{
           display: 'grid',
-          gridTemplateColumns: !isMobile && sidebarOpen ? '320px 1fr' : '1fr',
+          gridTemplateColumns: !isMobile && sidebarOpen ? '320px minmax(0, 1fr)' : 'minmax(0, 1fr)',
         }}
       >
         {/* Mobile backdrop */}
@@ -172,7 +172,7 @@ export function Dashboard() {
         </aside>
 
         {/* Graph area */}
-        <main className="relative overflow-hidden" style={{ contain: 'strict' }}>
+        <main className="relative overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
           <div className="absolute inset-0 overflow-hidden">
             <NetworkGraph
               data={graphData}

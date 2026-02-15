@@ -159,6 +159,7 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
 
   return (
     <div ref={containerRef} className="w-full h-full bg-background/30 rounded-lg overflow-hidden">
+      {dimensions.width > 0 && dimensions.height > 0 && (
       <ForceGraph2D
         ref={fgRef}
         graphData={data}
@@ -179,6 +180,7 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
         cooldownTicks={100}
         warmupTicks={50}
       />
+      )}
     </div>
   );
 }
