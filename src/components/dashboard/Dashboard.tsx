@@ -104,7 +104,13 @@ export function Dashboard() {
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden relative min-w-0">
+      <div
+        className="flex-1 overflow-hidden relative"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: !isMobile && sidebarOpen ? '320px 1fr' : '1fr',
+        }}
+      >
         {/* Mobile backdrop */}
         {isMobile && sidebarOpen && (
           <div
@@ -118,7 +124,7 @@ export function Dashboard() {
           className={`
             ${isMobile
               ? 'fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg transform transition-transform duration-200'
-              : `flex-shrink-0 transition-all duration-200 ${sidebarOpen ? 'w-80 min-w-[320px] border-r border-border bg-background relative z-10' : 'w-0 min-w-0 border-r-0 overflow-hidden'}`
+              : `${sidebarOpen ? 'border-r border-border bg-background overflow-hidden' : 'hidden'}`
             }
             ${isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'}
           `}
@@ -166,7 +172,7 @@ export function Dashboard() {
         </aside>
 
         {/* Graph area */}
-        <main className="flex-1 min-w-0 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
+        <main className="relative overflow-hidden" style={{ contain: 'strict' }}>
           <div className="absolute inset-0 overflow-hidden">
             <NetworkGraph
               data={graphData}
