@@ -13,7 +13,7 @@ interface NetworkGraphProps {
 export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }: NetworkGraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!containerRef.current) return;
