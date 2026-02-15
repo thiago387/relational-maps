@@ -118,7 +118,7 @@ export function Dashboard() {
           className={`
             ${isMobile
               ? 'fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg transform transition-transform duration-200'
-              : `flex-shrink-0 transition-all duration-200 ${sidebarOpen ? 'w-80 border-r border-border' : 'w-0 border-r-0 overflow-hidden'}`
+              : `flex-shrink-0 transition-all duration-200 ${sidebarOpen ? 'w-80 border-r border-border bg-background z-10' : 'w-0 border-r-0 overflow-hidden'}`
             }
             ${isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'}
           `}
