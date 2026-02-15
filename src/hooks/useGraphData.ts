@@ -72,9 +72,15 @@ export function useGraphData() {
   }, [edges]);
 
   const communities = useMemo(() => {
-    const uniqueCommunities = new Set(persons.map(p => p.community_id).filter(c => c !== null));
-    return Array.from(uniqueCommunities).sort((a, b) => (a ?? 0) - (b ?? 0));
-  }, [persons]);
+    // Derive communities from graph nodes (edge-based detection) instead of legacy persons
+    const fromGraph = new Set(graphData.nodes.map(n => n.communityId).filter(c => c !== null));
+    if (fromGraph.size > 0) {
+      return Array.from(fromGraph).sort((a, b) => (a ?? 0) - (b ?? 0));
+    }
+    // Fallback to legacy persons
+    const fromPersons = new Set(persons.map(p => p.community_id).filter(c => c !== null));
+    return Array.from(fromPersons).sort((a, b) => (a ?? 0) - (b ?? 0));
+  }, [graphData.nodes, persons]);
 
   const dateRange = useMemo(() => {
     const dates = relationships

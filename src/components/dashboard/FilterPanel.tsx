@@ -238,7 +238,7 @@ export function FilterPanel({
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground flex items-center gap-1">
             <Users className="h-3 w-3" />
-            Communities
+            Communities ({communities.length})
           </Label>
           <div className="flex flex-wrap gap-1">
             {communities.filter(c => c !== null).map(communityId => (

@@ -215,6 +215,15 @@ export function buildGraphFromEdges(
         return false;
       }
     }
+
+    // Community filter: only show edges where at least one endpoint is in the selected communities
+    if (filters.selectedCommunities.length > 0) {
+      const senderCom = communityMap.get(edge.sender_id) ?? null;
+      const recipientCom = communityMap.get(edge.recipient_id) ?? null;
+      const senderMatch = senderCom !== null && filters.selectedCommunities.includes(senderCom);
+      const recipientMatch = recipientCom !== null && filters.selectedCommunities.includes(recipientCom);
+      if (!senderMatch && !recipientMatch) return false;
+    }
     
     return true;
   });
