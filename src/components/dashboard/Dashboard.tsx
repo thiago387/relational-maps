@@ -166,7 +166,7 @@ export function Dashboard() {
         </aside>
 
         {/* Graph area */}
-        <main className="flex-1 relative overflow-hidden isolate">
+        <main className="flex-1 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
           <div className="absolute inset-0 overflow-hidden">
             <NetworkGraph
               data={graphData}
