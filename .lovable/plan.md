@@ -1,46 +1,61 @@
 
 
-## Fix: Sidebar Covered by Graph -- Use Hard Pixel Clipping
+## Fix: Sidebar Covered by Graph -- The Real Root Cause
 
-### Why All Previous Fixes Failed
+### Why ALL Previous Fixes Failed
 
-We have tried: `z-index`, `isolation: isolate`, `bg-background`, `min-width`, `position: relative`, and `absolute inset-0 overflow-hidden` wrapper. The graph canvas still bleeds over the sidebar.
+We tried `z-index`, `isolation: isolate`, `clip-path: inset(0)`, `overflow: hidden`, and absolute wrapping. None worked because they all try to clip content WITHIN the `<main>` element. But the problem is that **`<main>` itself is too wide** and physically overlaps the sidebar.
 
-The root cause is that CSS `overflow: hidden` does not always prevent an HTML5 canvas from painting outside its container. The `ForceGraph2D` library renders directly to a canvas element with explicit pixel dimensions, and browser compositing can allow those pixels to appear outside the `overflow: hidden` boundary in certain flex layout scenarios.
+### The Actual Root Cause: Flexbox `min-width: auto`
 
-### Solution: `clip-path: inset(0)` on the graph container
+In CSS flexbox, flex items have `min-width: auto` by default. This means a flex item will **never shrink below its content's intrinsic size**, even with `flex: 1`.
 
-The CSS property `clip-path: inset(0)` creates a **hard pixel-level clip** at the GPU compositing layer. Unlike `overflow: hidden` (which is a layout-level hint that can be bypassed), `clip-path` physically prevents any pixel from rendering outside the element's bounds. This is the nuclear option that is guaranteed to work.
+The `ForceGraph2D` canvas has a large intrinsic width (set via HTML attributes). Because `<main>` has no `min-width: 0`, it refuses to shrink to the remaining space after the sidebar, and instead expands to accommodate the canvas -- overlapping the sidebar.
 
-### Changes (single file)
+This is a well-documented flexbox gotcha. The fix is adding `min-w-0` (which sets `min-width: 0`) to allow the flex item to shrink properly.
 
-**File: `src/components/dashboard/Dashboard.tsx`**
+### Changes (single file: `src/components/dashboard/Dashboard.tsx`)
 
-Update the `<main>` element (the graph area container) to add an inline style for `clipPath`:
+**Change 1 -- Add `min-w-0` to `<main>` (line 169)**
 
-Current (around line 169):
-```tsx
-<main className="flex-1 relative overflow-hidden isolate">
 ```
+Current:
+<main className="flex-1 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
 
 Updated:
-```tsx
-<main className="flex-1 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
+<main className="flex-1 min-w-0 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
 ```
 
-That is the only change. One attribute added to one element.
+**Change 2 -- Add `min-w-0` to the parent flex container (line 107)**
+
+The parent also needs this to prevent the same issue from propagating up:
+
+```
+Current:
+<div className="flex-1 flex overflow-hidden relative">
+
+Updated:
+<div className="flex-1 flex overflow-hidden relative min-w-0">
+```
 
 ### Why This Will Work
 
-- `clip-path: inset(0)` creates a clipping rectangle at the exact bounds of the element
-- It operates at the GPU compositing level, meaning no child element (canvas, SVG, or otherwise) can render pixels outside the clip region
-- This is fundamentally different from `overflow: hidden`, which only affects layout overflow and can be bypassed by certain rendering pipelines
-- Browser support for `clip-path: inset()` is universal in modern browsers
+- `min-w-0` overrides the default `min-width: auto` behavior
+- This allows `flex: 1` to actually shrink the `<main>` element to fit the remaining space after the 320px sidebar
+- The canvas ResizeObserver will then measure the correct (smaller) container size
+- The canvas will render at the correct dimensions, not overlapping the sidebar
+- The existing `clip-path` and `overflow-hidden` remain as safety nets
+
+### Technical Details
+
+| File | Line | Change |
+|------|------|--------|
+| `src/components/dashboard/Dashboard.tsx` | 107 | Add `min-w-0` to parent flex container |
+| `src/components/dashboard/Dashboard.tsx` | 169 | Add `min-w-0` to `<main>` element |
 
 ### What This Does NOT Touch
 - NetworkGraph component is unchanged
 - Sidebar classes are unchanged
 - Mobile behavior is unchanged
-- The absolute wrapper div remains for additional safety
 - No other files are modified
 
