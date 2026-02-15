@@ -105,7 +105,7 @@ export function Dashboard() {
 
       {/* Main content */}
       <div
-        className="flex-1 overflow-hidden relative"
+        className="flex-1 overflow-hidden"
         style={{
           display: 'grid',
           gridTemplateColumns: !isMobile && sidebarOpen ? '320px minmax(0, 1fr)' : 'minmax(0, 1fr)',
@@ -119,15 +119,53 @@ export function Dashboard() {
           />
         )}
 
-        {/* Sidebar */}
+        {/* Graph area - rendered FIRST in DOM so sidebar paints on top */}
+        <main
+          className="overflow-hidden min-w-0 min-h-0"
+          style={{
+            position: 'relative',
+            zIndex: 0,
+            clipPath: 'inset(0)',
+            gridColumn: !isMobile && sidebarOpen ? '2' : '1',
+            gridRow: '1',
+          }}
+        >
+          <div className="absolute inset-0 overflow-hidden">
+            <NetworkGraph
+              data={graphData}
+              onNodeClick={handleNodeClick}
+              onLinkClick={handleLinkClick}
+              selectedNodeId={selectedNode?.id}
+            />
+          </div>
+          
+          <DetailPanel
+            selectedNode={selectedNode}
+            selectedLink={selectedLink}
+            persons={persons}
+            relationships={relationships}
+            emails={emails}
+            onClose={handleCloseDetail}
+            onViewMessages={handleViewMessages}
+          />
+        </main>
+
+        {/* Sidebar - rendered AFTER main in DOM so it naturally paints on top */}
         <aside
           className={`
             ${isMobile
               ? 'fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg transform transition-transform duration-200'
-              : `${sidebarOpen ? 'relative z-10 border-r border-border bg-background overflow-hidden' : 'hidden'}`
+              : `${sidebarOpen ? 'border-r border-border bg-background' : 'hidden'}`
             }
             ${isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'}
           `}
+          style={!isMobile && sidebarOpen ? {
+            position: 'relative',
+            zIndex: 10,
+            overflow: 'hidden',
+            gridColumn: '1',
+            gridRow: '1',
+          } : undefined}
         >
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
@@ -170,28 +208,6 @@ export function Dashboard() {
             </div>
           </ScrollArea>
         </aside>
-
-        {/* Graph area */}
-        <main className="relative z-0 overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
-          <div className="absolute inset-0 overflow-hidden">
-            <NetworkGraph
-              data={graphData}
-              onNodeClick={handleNodeClick}
-              onLinkClick={handleLinkClick}
-              selectedNodeId={selectedNode?.id}
-            />
-          </div>
-          
-          <DetailPanel
-            selectedNode={selectedNode}
-            selectedLink={selectedLink}
-            persons={persons}
-            relationships={relationships}
-            emails={emails}
-            onClose={handleCloseDetail}
-            onViewMessages={handleViewMessages}
-          />
-        </main>
       </div>
     </div>
   );
