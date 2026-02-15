@@ -166,7 +166,7 @@ export function Dashboard() {
         </aside>
 
         {/* Graph area */}
-        <main className="flex-1 relative overflow-hidden">
+        <main className="flex-1 relative overflow-hidden isolate">
           <NetworkGraph
             data={graphData}
             onNodeClick={handleNodeClick}
