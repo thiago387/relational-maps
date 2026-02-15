@@ -1,59 +1,46 @@
 
 
-## Fix: Sidebar Fully Visible -- Contain Graph Canvas with Absolute Positioning
+## Fix: Sidebar Covered by Graph -- Use Hard Pixel Clipping
 
-### Why Previous Fixes Did Not Work
+### Why All Previous Fixes Failed
 
-All previous attempts (z-index, isolation, bg-background, min-width) addressed stacking order, but the fundamental problem is that the ForceGraph2D canvas is not being clipped by `overflow: hidden` on the `<main>` element. This can happen when the library's internal DOM structure (it creates its own container with `position: relative`) interacts with the flex layout in a way that allows the canvas to paint outside its parent's visual bounds.
+We have tried: `z-index`, `isolation: isolate`, `bg-background`, `min-width`, `position: relative`, and `absolute inset-0 overflow-hidden` wrapper. The graph canvas still bleeds over the sidebar.
 
-### Solution
+The root cause is that CSS `overflow: hidden` does not always prevent an HTML5 canvas from painting outside its container. The `ForceGraph2D` library renders directly to a canvas element with explicit pixel dimensions, and browser compositing can allow those pixels to appear outside the `overflow: hidden` boundary in certain flex layout scenarios.
 
-Wrap the NetworkGraph component inside an absolutely-positioned div that is physically bounded within the `<main>` element. An absolutely-positioned element with `inset: 0` (top/right/bottom/left all 0) is guaranteed to be contained within its positioned parent, and `overflow: hidden` on it will clip the canvas no matter what.
+### Solution: `clip-path: inset(0)` on the graph container
 
-### Changes (single file: `src/components/dashboard/Dashboard.tsx`)
+The CSS property `clip-path: inset(0)` creates a **hard pixel-level clip** at the GPU compositing layer. Unlike `overflow: hidden` (which is a layout-level hint that can be bypassed), `clip-path` physically prevents any pixel from rendering outside the element's bounds. This is the nuclear option that is guaranteed to work.
 
-**Wrap NetworkGraph in an absolute container (around line 169-175):**
+### Changes (single file)
 
-Current:
-```jsx
+**File: `src/components/dashboard/Dashboard.tsx`**
+
+Update the `<main>` element (the graph area container) to add an inline style for `clipPath`:
+
+Current (around line 169):
+```tsx
 <main className="flex-1 relative overflow-hidden isolate">
-  <NetworkGraph
-    data={graphData}
-    onNodeClick={handleNodeClick}
-    onLinkClick={handleLinkClick}
-    selectedNodeId={selectedNode?.id}
-  />
-  
-  <DetailPanel ... />
-</main>
 ```
 
 Updated:
-```jsx
-<main className="flex-1 relative overflow-hidden isolate">
-  <div className="absolute inset-0 overflow-hidden">
-    <NetworkGraph
-      data={graphData}
-      onNodeClick={handleNodeClick}
-      onLinkClick={handleLinkClick}
-      selectedNodeId={selectedNode?.id}
-    />
-  </div>
-  
-  <DetailPanel ... />
-</main>
+```tsx
+<main className="flex-1 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
 ```
+
+That is the only change. One attribute added to one element.
 
 ### Why This Will Work
 
-- `absolute inset-0` makes the wrapper exactly match the `<main>` element's bounds (which has `position: relative`)
-- `overflow: hidden` on this wrapper clips the canvas -- even if the canvas tries to render outside, it is physically impossible for pixels to escape
-- The DetailPanel remains outside this wrapper so it floats above the graph as before
-- The NetworkGraph component and its internal ResizeObserver are untouched -- the container still fills the available space
+- `clip-path: inset(0)` creates a clipping rectangle at the exact bounds of the element
+- It operates at the GPU compositing level, meaning no child element (canvas, SVG, or otherwise) can render pixels outside the clip region
+- This is fundamentally different from `overflow: hidden`, which only affects layout overflow and can be bypassed by certain rendering pipelines
+- Browser support for `clip-path: inset()` is universal in modern browsers
 
 ### What This Does NOT Touch
-- NetworkGraph component code is unchanged
+- NetworkGraph component is unchanged
 - Sidebar classes are unchanged
 - Mobile behavior is unchanged
-- Graph rendering, interactions, and sizing are unchanged
+- The absolute wrapper div remains for additional safety
+- No other files are modified
 
