@@ -1,41 +1,41 @@
 
 
-## Fix: Sidebar Content Horizontally Clipped on Desktop
+## Fix: Sidebar Fully Visible - Stop Graph Canvas From Overlapping
 
-### Investigation Findings
+### Problem
+Despite adding `bg-background`, `relative`, `z-10`, and `min-w-[320px]` to the sidebar, the graph canvas still visually paints over the right portion of the sidebar. This is because `ForceGraph2D` (react-force-graph-2d) renders an HTML5 canvas that can visually bleed across flex siblings even with overflow-hidden, depending on browser compositing.
 
-After thorough analysis of the component hierarchy, here are all identified causes:
+### Root Cause
+The `<main>` element containing the graph and the `<aside>` sidebar are flex siblings. While the sidebar has `z-10`, the `<main>` element does not have a contained stacking context that prevents its canvas child from painting over adjacent elements. CSS `isolation: isolate` on the `<main>` forces a new stacking context, guaranteeing that nothing inside `<main>` can visually escape and overlap the sidebar.
 
-**1. No `min-width` on the sidebar aside element**
-The sidebar uses `w-80` (320px) but lacks `min-w-80`. In a flex layout, even with `flex-shrink-0`, some browsers can still compress the element if sibling content (the canvas) is aggressive about space. Adding `min-w-[320px]` guarantees the sidebar never gets squeezed below its intended width.
+### Solution (all in `src/components/dashboard/Dashboard.tsx`)
 
-**2. The `<main>` graph container lacks `overflow: hidden` containment for the canvas**
-The `ForceGraph2D` component renders an HTML5 `<canvas>` element. The `<main>` has `overflow-hidden`, but the canvas dimensions are set explicitly via `width` and `height` props from a `ResizeObserver`. If the observer fires before the sidebar is factored into the layout, the canvas may be sized to the full viewport width, visually overlapping the sidebar.
+**Change 1 - Add `isolate` to `<main>` (line 169)**
 
-**3. `position: relative` needed on the sidebar**  
-The sidebar has `z-10` but no `position` property set. In CSS, `z-index` only works on positioned elements (`relative`, `absolute`, `fixed`). Without `position: relative`, the `z-10` class has no effect and the canvas can paint over the sidebar.
+This CSS property creates a new stacking context on the graph container, preventing the canvas from visually overlapping the sidebar regardless of internal z-index values.
 
-### Plan
-
-All changes in `src/components/dashboard/Dashboard.tsx`:
-
-Update the desktop sidebar classes (line 121) to add:
-- `relative` -- makes `z-10` actually take effect
-- `min-w-[320px]` -- prevents flex from squeezing sidebar below intended width
-- Keep everything else the same
-
-Updated desktop open class string:
+Current:
 ```
-flex-shrink-0 transition-all duration-200 w-80 min-w-[320px] border-r border-border bg-background relative z-10
+<main className="flex-1 relative overflow-hidden">
 ```
 
-Updated desktop closed class string (add `min-w-0` to allow collapsing):
+Updated:
 ```
-flex-shrink-0 transition-all duration-200 w-0 min-w-0 border-r-0 overflow-hidden
+<main className="flex-1 relative overflow-hidden isolate">
 ```
 
-### What This Does NOT Touch
-- NetworkGraph component remains completely unchanged
-- Mobile sidebar behavior unchanged
-- No changes to graph rendering or sizing
+**Change 2 - Ensure sidebar z-index is effective (line 121)**
+
+Keep the existing `relative z-10 bg-background min-w-[320px]` classes on the desktop open state (already present from last edit). No change needed here.
+
+### Why This Should Work
+- `isolate` on `<main>` creates a stacking context boundary -- the canvas inside cannot have a z-index higher than `<main>` itself relative to its siblings
+- The sidebar with `relative z-10` will always stack above the default-stacking `<main>` (which has no z-index set, effectively `z-index: auto`)
+- The graph component itself is not modified at all
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/components/dashboard/Dashboard.tsx` | Add `isolate` class to `<main>` element (line 169) |
 
