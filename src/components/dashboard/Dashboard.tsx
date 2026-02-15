@@ -167,12 +167,14 @@ export function Dashboard() {
 
         {/* Graph area */}
         <main className="flex-1 relative overflow-hidden isolate">
-          <NetworkGraph
-            data={graphData}
-            onNodeClick={handleNodeClick}
-            onLinkClick={handleLinkClick}
-            selectedNodeId={selectedNode?.id}
-          />
+          <div className="absolute inset-0 overflow-hidden">
+            <NetworkGraph
+              data={graphData}
+              onNodeClick={handleNodeClick}
+              onLinkClick={handleLinkClick}
+              selectedNodeId={selectedNode?.id}
+            />
+          </div>
           
           <DetailPanel
             selectedNode={selectedNode}
