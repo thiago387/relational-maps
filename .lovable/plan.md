@@ -1,32 +1,39 @@
 
 
-## Fix: Desktop Sidebar Collapse
+## Fix: Sidebar Being Overlapped by Graph on Desktop
 
-### Problem
-The sidebar toggle button works on mobile (slide-over drawer) but on desktop, the collapse logic is ignored. Line 123 checks `isMobile && !sidebarOpen`, so on desktop the sidebar always stays visible at 320px wide regardless of the toggle state.
+### Root Cause Analysis
 
-### Solution
+After investigating, there are **three potential causes** all of which we will fix:
 
-Update the sidebar classes in `src/components/dashboard/Dashboard.tsx` so that on desktop, when `sidebarOpen` is false, the sidebar collapses to `w-0` (or is hidden) with a smooth transition:
+1. **Missing background color on desktop sidebar**: On line 120-121 of `Dashboard.tsx`, the mobile sidebar path includes `bg-background`, but the desktop path does not. Without an opaque background, the graph canvas (which uses an HTML5 canvas element) bleeds through visually.
 
-1. **Desktop closed state**: When `!sidebarOpen` on desktop, set width to 0 and hide overflow so the sidebar fully collapses and the graph gets the full viewport width
-2. **Desktop open state**: Keep `w-80 border-r` as before
-3. **Add transition on desktop** for smooth open/close animation (`transition-all duration-200`)
+2. **Missing z-index on desktop sidebar**: The sidebar and graph `main` area are flex siblings, but the `ForceGraph2D` canvas can paint over adjacent elements. The sidebar needs a `z-index` (e.g., `z-10`) to ensure it stacks above the graph area on desktop.
 
-The updated aside classes logic:
+3. **Sidebar `overflow-hidden` applied inconsistently**: When the sidebar is open on desktop, it should clip its content properly but must not be transparent.
 
+### Fix (all in `src/components/dashboard/Dashboard.tsx`)
+
+Update the desktop sidebar classes (line 121) to add:
+- `bg-background` -- gives the sidebar an opaque background so the graph cannot show through
+- `z-10` -- ensures the sidebar visually stacks above the graph canvas
+- Keep `overflow-hidden` only on the collapsed state (already correct)
+
+Updated class logic:
 ```
-Desktop open:   w-80 border-r border-border flex-shrink-0
-Desktop closed: w-0 border-r-0 flex-shrink-0 overflow-hidden
-Mobile open:    fixed inset-y-0 left-0 z-50 w-80 ... translate-x-0
-Mobile closed:  fixed inset-y-0 left-0 z-50 w-80 ... -translate-x-full
+Desktop open:   flex-shrink-0 w-80 border-r border-border bg-background z-10
+Desktop closed: flex-shrink-0 w-0 border-r-0 overflow-hidden
+Both:           transition-all duration-200
 ```
-
-Both desktop and mobile get `transition-all duration-200` for smooth animation.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/Dashboard.tsx` | Fix sidebar classes so desktop respects the `sidebarOpen` toggle -- collapse to `w-0` when closed, `w-80` when open, with transition |
+| `src/components/dashboard/Dashboard.tsx` | Add `bg-background z-10` to the desktop sidebar open state classes (line 121) |
+
+### What This Does NOT Touch
+- The `NetworkGraph` component remains completely unchanged
+- No changes to graph rendering, sizing, or behavior
+- Mobile sidebar behavior unchanged
 
