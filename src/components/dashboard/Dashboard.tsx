@@ -7,6 +7,7 @@ import { StatsPanel } from '@/components/dashboard/StatsPanel';
 import { DetailPanel } from '@/components/dashboard/DetailPanel';
 import { ImportPanel } from '@/components/dashboard/ImportPanel';
 import { ExportPanel } from '@/components/dashboard/ExportPanel';
+import { ClusterPanel } from '@/components/dashboard/ClusterPanel';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2 } from 'lucide-react';
 import type { GraphNode, GraphLink } from '@/types/graph';
@@ -105,6 +106,17 @@ export function Dashboard() {
                 persons={persons}
                 communities={communities}
                 dateRange={dateRange}
+              />
+
+              <ClusterPanel
+                graphData={graphData}
+                selectedCommunities={filters.selectedCommunities}
+                onCommunityToggle={(communityId) => {
+                  const newCommunities = filters.selectedCommunities.includes(communityId)
+                    ? filters.selectedCommunities.filter(c => c !== communityId)
+                    : [...filters.selectedCommunities, communityId];
+                  setFilters({ ...filters, selectedCommunities: newCommunities });
+                }}
               />
               
               <StatsPanel stats={stats} graphStats={graphStats} />
