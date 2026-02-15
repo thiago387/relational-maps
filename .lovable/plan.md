@@ -1,77 +1,63 @@
 
+## Fix: Sidebar Covered by Graph -- Stacking Context Fix
 
-## Fix: Graph Overlapping Sidebar -- The Actual Root Cause
+### The True Root Cause (Confirmed via Visual Reproduction)
 
-### Why Every Previous Fix Failed
+I reproduced the bug at 768x1024 viewport. The CSS Grid tracks (`320px minmax(0, 1fr)`) are correctly sized, but the graph still visually covers the sidebar.
 
-All previous attempts (`z-index`, `isolation`, `clip-path`, `overflow: hidden`, `min-w-0` on flexbox, CSS Grid with `contain: strict`) failed because of **two compounding issues** that were never both addressed:
+The reason: `clipPath: inset(0)` on `<main>` creates a **new stacking context**. In CSS painting order, later siblings render on top of earlier siblings. Since `<main>` comes AFTER `<aside>` in the DOM and has a stacking context (from clipPath), it paints on top of `<aside>`, which has no stacking context.
 
-**Issue 1: CSS Grid `1fr` does NOT prevent content expansion**
+Even with `overflow: hidden`, the canvas content can briefly overflow before being clipped (during resize/repaint cycles), and the stacking order ensures it renders above the sidebar.
 
-When we write `gridTemplateColumns: '320px 1fr'`, the `1fr` is actually shorthand for `minmax(auto, 1fr)`. The `auto` minimum means the column will expand if its content is wider than the available space. The force-graph canvas, which starts at `window.innerWidth` pixels wide (confirmed in library source at line 1020), pushes the column wider than intended, causing it to overflow into the sidebar column.
+### The Fix: Explicit Stacking Order (2 class changes in Dashboard.tsx)
 
-The fix: use `minmax(0, 1fr)` instead of `1fr`. This sets the minimum column width to 0, preventing content from expanding the track.
+**Change 1** -- Give the `<aside>` element (desktop mode) `relative z-10` so it always renders ABOVE the main area:
 
-**Issue 2: `contain: strict` breaks grid row sizing**
-
-`contain: strict` includes `contain: size`, which tells the browser "this element has no intrinsic size." In a CSS Grid without explicit row heights, the row height is determined by content. With `contain: size`, the element reports 0 intrinsic height, which can cause the row (and thus the graph) to collapse or behave unpredictably. This needs to be removed and replaced with simpler overflow clipping.
-
-### The Fix (2 files, 3 changes)
-
-**File 1: `src/components/dashboard/Dashboard.tsx`**
-
-Change 1 -- Fix grid template (line 111):
 ```
-Current:  gridTemplateColumns: !isMobile && sidebarOpen ? '320px 1fr' : '1fr'
-Updated:  gridTemplateColumns: !isMobile && sidebarOpen ? '320px minmax(0, 1fr)' : 'minmax(0, 1fr)'
+Current (line 127):
+: `${sidebarOpen ? 'border-r border-border bg-background overflow-hidden' : 'hidden'}`
+
+Updated:
+: `${sidebarOpen ? 'relative z-10 border-r border-border bg-background overflow-hidden' : 'hidden'}`
 ```
 
-Change 2 -- Fix main element styling (line 175):
+**Change 2** -- Give `<main>` a `z-0` to explicitly place it below the sidebar:
+
 ```
-Current:  <main className="relative overflow-hidden" style={{ contain: 'strict' }}>
-Updated:  <main className="relative overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
-```
+Current (line 175):
+<main className="relative overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
 
-This replaces `contain: strict` (which breaks sizing) with:
-- `min-w-0 min-h-0`: prevents the grid item from expanding beyond its track
-- `clipPath: inset(0)`: GPU-level pixel clipping as a final safety net (works correctly now because the element will actually be the right size)
-
-**File 2: `src/components/dashboard/NetworkGraph.tsx`**
-
-Change 3 -- Don't render canvas until dimensions are known (around lines 160-182):
-```tsx
-// Current:
-return (
-    <div ref={containerRef} className="w-full h-full bg-background/30 rounded-lg overflow-hidden">
-      <ForceGraph2D ... />
-    </div>
-);
-
-// Updated:
-return (
-    <div ref={containerRef} className="w-full h-full bg-background/30 rounded-lg overflow-hidden">
-      {dimensions.width > 0 && dimensions.height > 0 && (
-        <ForceGraph2D ... />
-      )}
-    </div>
-);
+Updated:
+<main className="relative z-0 overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
 ```
 
-This prevents ForceGraph2D from mounting (and creating a canvas at `window.innerWidth`) before the ResizeObserver has measured the actual container size. The graph only renders once we know the correct dimensions.
+### Why This Will Work
 
-### Why This Combination Will Work
+- `z-10` on aside creates a stacking context at z-index 10
+- `z-0` on main creates a stacking context at z-index 0
+- The aside will ALWAYS render on top of main, regardless of what the canvas does
+- This works independently of overflow clipping -- even if the canvas overflows, the sidebar renders above it
+- CSS Grid items fully support z-index for stacking order control
 
-| Problem | Fix | Why it works |
-|---------|-----|-------------|
-| Grid column expands beyond track | `minmax(0, 1fr)` | Sets hard minimum of 0px, column cannot grow beyond remaining space |
-| Grid item expands beyond track | `min-w-0 min-h-0` | Prevents grid item from using content intrinsic size |
-| Canvas paints outside bounds | `clipPath: inset(0)` | GPU-level clip (now effective because element is correctly sized) |
-| Canvas initially renders at full viewport width | Conditional rendering | Canvas only created after correct dimensions are measured |
-| `contain: strict` breaks row height | Removed | No more size containment interfering with grid layout |
+### Why Previous Fixes Failed
+
+| Attempt | Why it failed |
+|---------|--------------|
+| `overflow: hidden` on main | Canvas paints at GPU level; stacking context from clipPath puts main above aside |
+| `clip-path: inset(0)` | Creates stacking context that makes main paint OVER aside |
+| `minmax(0, 1fr)` | Correctly sizes grid tracks but doesn't fix paint order |
+| `contain: strict` | Broke grid row height calculation |
+| `min-w-0` on flexbox | Flex items still had default stacking order issues |
+
+### Files Changed
+
+| File | Line | Change |
+|------|------|--------|
+| `src/components/dashboard/Dashboard.tsx` | 127 | Add `relative z-10` to desktop aside |
+| `src/components/dashboard/Dashboard.tsx` | 175 | Add `z-0` to main element |
 
 ### What This Does NOT Touch
-- Graph rendering logic (nodes, links, forces) is unchanged
-- Sidebar content and panels are unchanged
-- Mobile sidebar behavior (fixed overlay) is unchanged
-- No new dependencies or structural changes
-
+- Grid layout structure (stays as CSS Grid with `320px minmax(0, 1fr)`)
+- NetworkGraph component (unchanged)
+- Mobile sidebar behavior (unchanged, uses fixed positioning with z-50)
+- Sidebar content (unchanged)
