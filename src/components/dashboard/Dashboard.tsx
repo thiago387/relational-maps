@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGraphData } from '@/hooks/useGraphData';
 import { NetworkGraph } from '@/components/dashboard/NetworkGraph';
@@ -9,11 +9,14 @@ import { ImportPanel } from '@/components/dashboard/ImportPanel';
 import { ExportPanel } from '@/components/dashboard/ExportPanel';
 import { ClusterPanel } from '@/components/dashboard/ClusterPanel';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, Menu, X } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { GraphNode, GraphLink } from '@/types/graph';
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const {
     persons,
     relationships,
@@ -35,6 +38,11 @@ export function Dashboard() {
 
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [selectedLink, setSelectedLink] = useState<GraphLink | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+
+  useEffect(() => {
+    setSidebarOpen(!isMobile);
+  }, [isMobile]);
 
   const graphStats = useMemo(() => ({
     nodesCount: graphData.nodes.length,
@@ -76,19 +84,46 @@ export function Dashboard() {
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-border px-6 py-4 flex-shrink-0">
-        <h1 className="text-2xl font-bold tracking-tight">
-          📧 Epstein Email Network Analysis
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Interactive visualization of email communications with sentiment analysis
-        </p>
+      <header className="border-b border-border px-4 md:px-6 py-3 md:py-4 flex-shrink-0 flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="flex-shrink-0"
+        >
+          {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </Button>
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+            📧 Epstein Email Network Analysis
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5 hidden sm:block">
+            Interactive visualization of email communications with sentiment analysis
+          </p>
+        </div>
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left sidebar */}
-        <aside className="w-80 border-r border-border flex-shrink-0 overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Mobile backdrop */}
+        {isMobile && sidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* Sidebar */}
+        <aside
+          className={`
+            ${isMobile
+              ? 'fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg transform transition-transform duration-200'
+              : 'w-80 border-r border-border flex-shrink-0'
+            }
+            ${isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'}
+            overflow-hidden
+          `}
+        >
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
               <ImportPanel
