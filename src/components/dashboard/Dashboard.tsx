@@ -124,7 +124,7 @@ export function Dashboard() {
           className={`
             ${isMobile
               ? 'fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg transform transition-transform duration-200'
-              : `${sidebarOpen ? 'border-r border-border bg-background overflow-hidden' : 'hidden'}`
+              : `${sidebarOpen ? 'relative z-10 border-r border-border bg-background overflow-hidden' : 'hidden'}`
             }
             ${isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'}
           `}
@@ -172,7 +172,7 @@ export function Dashboard() {
         </aside>
 
         {/* Graph area */}
-        <main className="relative overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
+        <main className="relative z-0 overflow-hidden min-w-0 min-h-0" style={{ clipPath: 'inset(0)' }}>
           <div className="absolute inset-0 overflow-hidden">
             <NetworkGraph
               data={graphData}
