@@ -104,7 +104,7 @@ export function Dashboard() {
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex overflow-hidden relative min-w-0">
         {/* Mobile backdrop */}
         {isMobile && sidebarOpen && (
           <div
@@ -166,7 +166,7 @@ export function Dashboard() {
         </aside>
 
         {/* Graph area */}
-        <main className="flex-1 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
+        <main className="flex-1 min-w-0 relative overflow-hidden isolate" style={{ clipPath: 'inset(0)' }}>
           <div className="absolute inset-0 overflow-hidden">
             <NetworkGraph
               data={graphData}
