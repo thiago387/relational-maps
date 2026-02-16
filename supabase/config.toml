@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.scrape-emails]
 verify_jwt = false
+
+[functions.admin-create-user]
+verify_jwt = false
+
+[functions.admin-list-users]
+verify_jwt = false
+
+[functions.seed-admins]
+verify_jwt = false
