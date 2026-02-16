@@ -1,21 +1,60 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import type { Email } from '@/types/graph';
+import type { Email, GraphNode, FilterState } from '@/types/graph';
 import { cn } from '@/lib/utils';
 
 interface TopicsPanelProps {
   emails: Email[];
   onTopicFilter?: (topic: string | null) => void;
+  graphNodes?: GraphNode[];
+  filters?: FilterState;
 }
 
-export function TopicsPanel({ emails, onTopicFilter }: TopicsPanelProps) {
+export function TopicsPanel({ emails, onTopicFilter, graphNodes, filters }: TopicsPanelProps) {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+
+  // Build sender->community lookup
+  const senderCommunityMap = useMemo(() => {
+    if (!graphNodes) return null;
+    const map = new Map<string, number | null>();
+    graphNodes.forEach(n => map.set(n.id, n.communityId));
+    return map;
+  }, [graphNodes]);
+
+  // Filter emails by community and date range
+  const filteredEmails = useMemo(() => {
+    let result = emails;
+
+    if (filters) {
+      const [startDate, endDate] = filters.dateRange;
+      if (startDate || endDate) {
+        result = result.filter(email => {
+          if (!email.date) return false;
+          const d = new Date(email.date);
+          if (startDate && d < startDate) return false;
+          if (endDate && d > endDate) return false;
+          return true;
+        });
+      }
+
+      if (filters.selectedCommunities.length > 0 && senderCommunityMap) {
+        const selectedSet = new Set(filters.selectedCommunities);
+        result = result.filter(email => {
+          if (!email.sender_id) return false;
+          const community = senderCommunityMap.get(email.sender_id);
+          return community !== null && community !== undefined && selectedSet.has(community);
+        });
+      }
+    }
+
+    return result;
+  }, [emails, filters, senderCommunityMap]);
 
   const { topTopics, topMarkers } = useMemo(() => {
     const topicCounts = new Map<string, number>();
     const markerCounts = new Map<string, number>();
 
-    emails.forEach(email => {
+    filteredEmails.forEach(email => {
       if (email.topics) {
         email.topics.forEach(t => {
           if (t && t.trim()) topicCounts.set(t.trim(), (topicCounts.get(t.trim()) || 0) + 1);
@@ -37,7 +76,7 @@ export function TopicsPanel({ emails, onTopicFilter }: TopicsPanelProps) {
       .slice(0, 10);
 
     return { topTopics, topMarkers };
-  }, [emails]);
+  }, [filteredEmails]);
 
   const maxTopicCount = topTopics.length > 0 ? topTopics[0][1] : 1;
 
@@ -50,7 +89,7 @@ export function TopicsPanel({ emails, onTopicFilter }: TopicsPanelProps) {
   if (topTopics.length === 0 && topMarkers.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-muted-foreground">
-        No topics or emotional markers found in emails
+        No topics or keywords found in emails
       </div>
     );
   }
@@ -84,7 +123,7 @@ export function TopicsPanel({ emails, onTopicFilter }: TopicsPanelProps) {
 
       {topMarkers.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Emotional Markers</p>
+          <p className="text-xs font-medium text-muted-foreground">Keywords</p>
           <div className="flex flex-wrap gap-1">
             {topMarkers.map(([marker, count]) => (
               <Badge key={marker} variant="secondary" className="text-[10px] px-1.5 py-0.5">
