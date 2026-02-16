@@ -8,6 +8,300 @@ const corsHeaders = {
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
+// ─── INLINE LOUVAIN COMMUNITY DETECTION ───
+interface WeightedEdge {
+  sender_id: string;
+  recipient_id: string;
+  message_count: number;
+}
+
+function detectCommunities(edges: WeightedEdge[]): Map<string, number> {
+  if (edges.length === 0) return new Map();
+
+  const pairWeights = new Map<string, number>();
+  const nodeSet = new Set<string>();
+
+  edges.forEach(edge => {
+    nodeSet.add(edge.sender_id);
+    nodeSet.add(edge.recipient_id);
+    const a = edge.sender_id < edge.recipient_id ? edge.sender_id : edge.recipient_id;
+    const b = edge.sender_id < edge.recipient_id ? edge.recipient_id : edge.sender_id;
+    const key = `${a}\0${b}`;
+    pairWeights.set(key, (pairWeights.get(key) || 0) + (edge.message_count || 1));
+  });
+
+  const nodes = Array.from(nodeSet);
+  const nodeIndex = new Map<string, number>();
+  nodes.forEach((id, i) => nodeIndex.set(id, i));
+
+  const n = nodes.length;
+  const adj: { neighbor: number; weight: number }[][] = Array.from({ length: n }, () => []);
+  let totalWeight = 0;
+
+  pairWeights.forEach((weight, key) => {
+    const [a, b] = key.split('\0');
+    const ai = nodeIndex.get(a)!;
+    const bi = nodeIndex.get(b)!;
+    adj[ai].push({ neighbor: bi, weight });
+    adj[bi].push({ neighbor: ai, weight });
+    totalWeight += weight;
+  });
+
+  if (totalWeight === 0) {
+    const result = new Map<string, number>();
+    nodes.forEach(id => result.set(id, 0));
+    return result;
+  }
+
+  const m2 = totalWeight * 2;
+  const degree = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let d = 0;
+    for (const e of adj[i]) d += e.weight;
+    degree[i] = d;
+  }
+
+  const community = new Int32Array(n);
+  for (let i = 0; i < n; i++) community[i] = i;
+
+  const communityInternalWeight = new Float64Array(n);
+  const communityTotalDegree = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    communityTotalDegree[i] = degree[i];
+  }
+
+  let improved = true;
+  let iterations = 0;
+  const maxIterations = 20;
+
+  while (improved && iterations < maxIterations) {
+    improved = false;
+    iterations++;
+
+    for (let i = 0; i < n; i++) {
+      const currentCom = community[i];
+      const ki = degree[i];
+
+      const neighborComWeights = new Map<number, number>();
+      for (const e of adj[i]) {
+        const neighborCom = community[e.neighbor];
+        neighborComWeights.set(neighborCom, (neighborComWeights.get(neighborCom) || 0) + e.weight);
+      }
+      const weightToOwnCom = neighborComWeights.get(currentCom) || 0;
+
+      communityInternalWeight[currentCom] -= weightToOwnCom;
+      communityTotalDegree[currentCom] -= ki;
+
+      let bestCom = currentCom;
+      let bestGain = 0;
+
+      neighborComWeights.forEach((wic, com) => {
+        const gain = wic - (communityTotalDegree[com] * ki) / m2;
+        if (gain > bestGain) {
+          bestGain = gain;
+          bestCom = com;
+        }
+      });
+
+      const stayGain = weightToOwnCom - (communityTotalDegree[currentCom] * ki) / m2;
+      if (stayGain >= bestGain) {
+        bestCom = currentCom;
+        bestGain = stayGain;
+      }
+
+      community[i] = bestCom;
+      communityInternalWeight[bestCom] += (neighborComWeights.get(bestCom) || 0);
+      communityTotalDegree[bestCom] += ki;
+
+      if (bestCom !== currentCom) {
+        improved = true;
+      }
+    }
+  }
+
+  const communityRemap = new Map<number, number>();
+  let nextId = 0;
+  const result = new Map<string, number>();
+
+  for (let i = 0; i < n; i++) {
+    const com = community[i];
+    if (!communityRemap.has(com)) {
+      communityRemap.set(com, nextId++);
+    }
+    result.set(nodes[i], communityRemap.get(com)!);
+  }
+
+  return result;
+}
+
+// Helper: fetch all edges and run community detection, with caching within a request
+async function fetchAndDetectCommunities(db: any): Promise<{ communities: Map<string, number>; allEdges: any[] }> {
+  const { data: allEdges } = await db.from("edges")
+    .select("sender_id, recipient_id, message_count, avg_polarity, edge_sentiment")
+    .limit(5000);
+
+  const edges = (allEdges || []).map((e: any) => ({
+    sender_id: e.sender_id,
+    recipient_id: e.recipient_id,
+    message_count: e.message_count || 1,
+  }));
+
+  const communities = detectCommunities(edges);
+  return { communities, allEdges: allEdges || [] };
+}
+
+// Build community analysis context
+function buildCommunityContext(
+  communities: Map<string, number>,
+  allEdges: any[],
+  requestedIds: number[] | null
+): string {
+  // Group members by community
+  const communityMembers = new Map<number, string[]>();
+  communities.forEach((comId, personId) => {
+    if (!communityMembers.has(comId)) communityMembers.set(comId, []);
+    communityMembers.get(comId)!.push(personId);
+  });
+
+  // Determine which communities to analyze
+  const targetCommunities = requestedIds && requestedIds.length > 0
+    ? requestedIds.filter(id => communityMembers.has(id))
+    : Array.from(communityMembers.keys()).sort((a, b) => {
+        return (communityMembers.get(b)?.length || 0) - (communityMembers.get(a)?.length || 0);
+      }).slice(0, 8); // top 8 by size if none specified
+
+  if (targetCommunities.length === 0) {
+    return "COMMUNITY ANALYSIS: No matching communities found.";
+  }
+
+  const parts: string[] = [];
+
+  for (const comId of targetCommunities) {
+    const members = new Set(communityMembers.get(comId) || []);
+
+    // Calculate per-member message stats
+    const memberStats = new Map<string, { sent: number; received: number }>();
+    members.forEach(m => memberStats.set(m, { sent: 0, received: 0 }));
+
+    let internalEdges = 0;
+    let externalEdges = 0;
+    let internalMsgVolume = 0;
+    let internalPolaritySum = 0;
+    let internalPolarityCount = 0;
+    let positiveEdges = 0;
+    let negativeEdges = 0;
+    let neutralEdges = 0;
+    const crossCommunityEdges = new Map<number, number>();
+    const bridgeNodes = new Set<string>();
+
+    for (const edge of allEdges) {
+      const senderInCom = members.has(edge.sender_id);
+      const recipInCom = members.has(edge.recipient_id);
+
+      if (senderInCom) {
+        const stats = memberStats.get(edge.sender_id)!;
+        stats.sent += edge.message_count || 0;
+      }
+      if (recipInCom) {
+        const stats = memberStats.get(edge.recipient_id)!;
+        stats.received += edge.message_count || 0;
+      }
+
+      if (senderInCom && recipInCom) {
+        internalEdges++;
+        internalMsgVolume += edge.message_count || 0;
+        if (edge.avg_polarity != null) {
+          internalPolaritySum += Number(edge.avg_polarity);
+          internalPolarityCount++;
+        }
+        const pol = Number(edge.avg_polarity || 0);
+        if (pol > 0.1) positiveEdges++;
+        else if (pol < -0.1) negativeEdges++;
+        else neutralEdges++;
+      } else if (senderInCom || recipInCom) {
+        externalEdges++;
+        // Track cross-community connections
+        const otherPerson = senderInCom ? edge.recipient_id : edge.sender_id;
+        const otherCom = communities.get(otherPerson);
+        if (otherCom != null && otherCom !== comId) {
+          crossCommunityEdges.set(otherCom, (crossCommunityEdges.get(otherCom) || 0) + 1);
+          // The member connecting out is a bridge node
+          const bridgePerson = senderInCom ? edge.sender_id : edge.recipient_id;
+          bridgeNodes.add(bridgePerson);
+        }
+      }
+    }
+
+    // Find top communicator
+    let topCommunicator = "";
+    let topTotal = 0;
+    memberStats.forEach((stats, person) => {
+      const total = stats.sent + stats.received;
+      if (total > topTotal) {
+        topTotal = total;
+        topCommunicator = person;
+      }
+    });
+
+    // Sort members by total messages
+    const sortedMembers = Array.from(memberStats.entries())
+      .sort((a, b) => (b[1].sent + b[1].received) - (a[1].sent + a[1].received));
+
+    const avgInternalPolarity = internalPolarityCount > 0
+      ? (internalPolaritySum / internalPolarityCount).toFixed(3)
+      : "N/A";
+
+    const totalSentimentEdges = positiveEdges + negativeEdges + neutralEdges;
+
+    // Bridge node details
+    const bridgeDetails: string[] = [];
+    bridgeNodes.forEach(bn => {
+      const connectedComs = new Set<number>();
+      for (const edge of allEdges) {
+        if (edge.sender_id === bn && !members.has(edge.recipient_id)) {
+          const oc = communities.get(edge.recipient_id);
+          if (oc != null) connectedComs.add(oc);
+        }
+        if (edge.recipient_id === bn && !members.has(edge.sender_id)) {
+          const oc = communities.get(edge.sender_id);
+          if (oc != null) connectedComs.add(oc);
+        }
+      }
+      if (connectedComs.size > 0) {
+        bridgeDetails.push(`${bn} (connects to communities ${Array.from(connectedComs).sort((a, b) => a - b).join(', ')})`);
+      }
+    });
+
+    // Cross-community sorted
+    const crossSorted = Array.from(crossCommunityEdges.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    parts.push(`COMMUNITY ANALYSIS: Community ${comId} (${members.size} members)
+
+Members:
+${sortedMembers.slice(0, 20).map(([p, s]) => `- ${p} (sent: ${s.sent}, received: ${s.received})`).join('\n')}${sortedMembers.length > 20 ? `\n  ... and ${sortedMembers.length - 20} more` : ''}
+
+Internal Communication:
+- Internal edges: ${internalEdges}, External edges: ${externalEdges}
+- Internal message volume: ${internalMsgVolume}
+- Avg internal polarity: ${avgInternalPolarity}${avgInternalPolarity !== "N/A" ? (Number(avgInternalPolarity) > 0 ? " (leaning positive)" : Number(avgInternalPolarity) < 0 ? " (leaning negative)" : " (neutral)") : ""}
+
+Sentiment Distribution:${totalSentimentEdges > 0 ? `
+- Positive edges: ${positiveEdges} (${(positiveEdges / totalSentimentEdges * 100).toFixed(1)}%)
+- Negative edges: ${negativeEdges} (${(negativeEdges / totalSentimentEdges * 100).toFixed(1)}%)
+- Neutral edges: ${neutralEdges} (${(neutralEdges / totalSentimentEdges * 100).toFixed(1)}%)` : ' No sentiment data'}
+
+Key Figures:
+- Top communicator: ${topCommunicator} (${topTotal} total messages)
+${bridgeDetails.length > 0 ? `- Bridge nodes: ${bridgeDetails.slice(0, 5).join('; ')}` : '- No bridge nodes identified'}
+
+${crossSorted.length > 0 ? `Cross-Community Connections:\n${crossSorted.map(([cId, count]) => `- Community ${cId}: ${count} edges`).join('\n')}` : 'No cross-community connections found.'}`);
+  }
+
+  return parts.join('\n\n---\n\n');
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -62,7 +356,8 @@ serve(async (req) => {
 1. What type of data queries are needed
 2. How deep the response should be
 
-Call the plan_response function with your analysis. Always include "general" in intents for baseline context.`
+Call the plan_response function with your analysis. Always include "general" in intents for baseline context.
+If the user asks about a community, cluster, or group (e.g. "tell me about community 3", "what groups exist", "which cluster is the largest"), include "community_analysis" in intents and specify community_ids if specific communities are mentioned.`
       },
       { role: "user", content: message }
     ];
@@ -84,10 +379,15 @@ Call the plan_response function with your analysis. Always include "general" in 
                 depth: { type: "string", enum: ["brief", "detailed", "deep-dive"], description: "How thorough the answer should be" },
                 intents: {
                   type: "array",
-                  items: { type: "string", enum: ["content_search", "sentiment_analysis", "graph_search", "general"] },
-                  description: "Which data queries to run"
+                  items: { type: "string", enum: ["content_search", "sentiment_analysis", "graph_search", "community_analysis", "general"] },
+                  description: "Which data queries to run. Use community_analysis when user asks about communities, clusters, or groups."
                 },
                 search_terms: { type: "array", items: { type: "string" }, description: "Names, topics, or keywords to search for" },
+                community_ids: {
+                  type: "array",
+                  items: { type: "integer" },
+                  description: "Specific community IDs referenced by the user (e.g. [3] for 'community 3'). Leave empty for general community overview."
+                },
                 time_focus: {
                   type: "object",
                   properties: { year_min: { type: "integer" }, year_max: { type: "integer" } },
@@ -113,12 +413,12 @@ Call the plan_response function with your analysis. Always include "general" in 
     }
 
     const orchestratorData = await orchestratorResp.json();
-    let plan = { depth: "detailed", intents: ["general"], search_terms: [] as string[], time_focus: null as any };
+    let plan = { depth: "detailed", intents: ["general"], search_terms: [] as string[], community_ids: [] as number[], time_focus: null as any };
 
     try {
       const toolCall = orchestratorData.choices?.[0]?.message?.tool_calls?.[0];
       if (toolCall?.function?.arguments) {
-        plan = JSON.parse(toolCall.function.arguments);
+        plan = { ...plan, ...JSON.parse(toolCall.function.arguments) };
       }
     } catch { /* use defaults */ }
 
@@ -126,6 +426,16 @@ Call the plan_response function with your analysis. Always include "general" in 
 
     // ─── STAGE 2: DYNAMIC DATA FETCHING ───
     const dataContextParts: string[] = [];
+
+    // Cache for community detection (avoid running twice if both general and community_analysis)
+    let cachedCommunityData: { communities: Map<string, number>; allEdges: any[] } | null = null;
+
+    async function getCommunityData() {
+      if (!cachedCommunityData) {
+        cachedCommunityData = await fetchAndDetectCommunities(db);
+      }
+      return cachedCommunityData;
+    }
 
     // Always fetch general stats
     if (plan.intents.includes("general")) {
@@ -143,37 +453,48 @@ Call the plan_response function with your analysis. Always include "general" in 
       });
       const topTopics = Object.entries(topicCounts).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([t, c]) => `${t} (${c})`);
 
-      const communityMap: Record<number, number> = {};
-      topPersonsRes.data?.forEach((p: any) => {
-        if (p.community_id != null) communityMap[p.community_id] = (communityMap[p.community_id] || 0) + 1;
+      // Run community detection for general summary
+      const { communities } = await getCommunityData();
+      const communityMembers = new Map<number, number>();
+      communities.forEach((comId) => {
+        communityMembers.set(comId, (communityMembers.get(comId) || 0) + 1);
       });
+      const communitySizes = Array.from(communityMembers.entries()).sort((a, b) => b[1] - a[1]);
+      const communityCount = communitySizes.length;
+      const largestCom = communitySizes[0];
+      const smallestCom = communitySizes[communitySizes.length - 1];
 
       dataContextParts.push(`DATASET OVERVIEW:
 - Total persons: ${personsRes.count ?? 0}
 - Total edges/connections: ${edgesRes.count ?? 0}
 - Total emails: ${emailsRes.count ?? 0}
+- Communities detected: ${communityCount}${largestCom ? ` (largest: Community ${largestCom[0]} with ${largestCom[1]} members, smallest: Community ${smallestCom[0]} with ${smallestCom[1]} members)` : ''}
 
 TOP PERSONS (by emails sent):
 ${topPersonsRes.data?.map((p: any) => `- ${p.name || 'Unknown'}: sent=${p.email_count_sent}, received=${p.email_count_received}, sentiment=${p.avg_sentiment ?? 'N/A'}, community=${p.community_id ?? 'N/A'}`).join('\n') || 'No data'}
 
 TOP TOPICS: ${topTopics.join(', ') || 'No topics'}
 
-COMMUNITIES: ${Object.entries(communityMap).map(([id, count]) => `Community ${id}: ${count} top members`).join(', ') || 'No community data'}`);
+COMMUNITY SIZES: ${communitySizes.slice(0, 15).map(([id, size]) => `Community ${id}: ${size} members`).join(', ')}`);
+    }
+
+    // Community analysis
+    if (plan.intents.includes("community_analysis")) {
+      const { communities, allEdges } = await getCommunityData();
+      const requestedIds = plan.community_ids && plan.community_ids.length > 0 ? plan.community_ids : null;
+      const communityContext = buildCommunityContext(communities, allEdges, requestedIds);
+      dataContextParts.push(communityContext);
     }
 
     // Content search
     if (plan.intents.includes("content_search") && plan.search_terms.length > 0) {
-      const termConditions = plan.search_terms.map(t => `subject.ilike.%${t}%,body.ilike.%${t}%,from_name.ilike.%${t}%,from_email.ilike.%${t}%`);
-      let query = db.from("emails").select("from_name, from_email, to_names, subject, date, polarity, topics, sentiment_category");
-
-      // Build OR filter for all terms
       const orParts = plan.search_terms.flatMap(t => [
         `subject.ilike.%${t}%`,
         `body.ilike.%${t}%`,
         `from_name.ilike.%${t}%`,
         `from_email.ilike.%${t}%`
       ]);
-      query = query.or(orParts.join(','));
+      let query = db.from("emails").select("from_name, from_email, to_names, subject, date, polarity, topics, sentiment_category").or(orParts.join(','));
 
       if (plan.time_focus?.year_min) query = query.gte("year", plan.time_focus.year_min);
       if (plan.time_focus?.year_max) query = query.lte("year", plan.time_focus.year_max);
@@ -190,7 +511,6 @@ ${emailResults.map((e: any) => `- [${e.date?.slice(0, 10) || '?'}] From: ${e.fro
 
     // Sentiment analysis
     if (plan.intents.includes("sentiment_analysis") && plan.search_terms.length > 0) {
-      // Sentiment by person
       const personTerms = plan.search_terms;
       const personOrParts = personTerms.flatMap(t => [`name.ilike.%${t}%`, `email.ilike.%${t}%`]);
       const { data: personSentiment } = await db.from("persons")
@@ -203,8 +523,6 @@ ${emailResults.map((e: any) => `- [${e.date?.slice(0, 10) || '?'}] From: ${e.fro
 ${personSentiment.map((p: any) => `- ${p.name || p.email}: avg_sentiment=${p.avg_sentiment ?? 'N/A'}, sent=${p.email_count_sent}, received=${p.email_count_received}, community=${p.community_id ?? 'N/A'}`).join('\n')}`);
       }
 
-      // Sentiment by topic
-      const topicOrParts = personTerms.map(t => `subject.ilike.%${t}%,body.ilike.%${t}%`);
       const { data: topicEmails } = await db.from("emails")
         .select("polarity, sentiment_category, topics")
         .or(personTerms.flatMap(t => [`subject.ilike.%${t}%`, `body.ilike.%${t}%`]).join(','))
@@ -227,7 +545,6 @@ ${personSentiment.map((p: any) => `- ${p.name || p.email}: avg_sentiment=${p.avg
 
     // Graph search
     if (plan.intents.includes("graph_search") && plan.search_terms.length > 0) {
-      // Find persons matching search terms
       const personOrParts = plan.search_terms.flatMap(t => [`name.ilike.%${t}%`, `email.ilike.%${t}%`]);
       const { data: matchedPersons } = await db.from("persons")
         .select("id, name, email, community_id, email_count_sent, email_count_received, avg_sentiment")
@@ -236,21 +553,18 @@ ${personSentiment.map((p: any) => `- ${p.name || p.email}: avg_sentiment=${p.avg
 
       if (matchedPersons && matchedPersons.length > 0) {
         for (const person of matchedPersons) {
-          // Outgoing connections
           const { data: outEdges } = await db.from("edges")
             .select("recipient_id, message_count, avg_polarity, edge_sentiment")
             .eq("sender_id", person.email)
             .order("message_count", { ascending: false })
             .limit(15);
 
-          // Incoming connections
           const { data: inEdges } = await db.from("edges")
             .select("sender_id, message_count, avg_polarity, edge_sentiment")
             .eq("recipient_id", person.email)
             .order("message_count", { ascending: false })
             .limit(15);
 
-          // Resolve names for connected persons
           const connectedEmails = [
             ...(outEdges || []).map((e: any) => e.recipient_id),
             ...(inEdges || []).map((e: any) => e.sender_id)
