@@ -29,6 +29,8 @@ interface EmailRow {
   recipient_list: string;
   polarity: string;
   sentiment: string;
+  topic_labels: string;
+  extracted_keywords: string;
 }
 
 // Load edges from CSV
@@ -107,6 +109,7 @@ export async function loadEmailsFromCSV(
     const parseResult = Papa.parse<EmailRow>(text, {
       header: true,
       skipEmptyLines: true,
+      delimiter: ';',
     });
     
     if (parseResult.errors.length > 0) {
@@ -179,6 +182,12 @@ export async function loadEmailsFromCSV(
             polarity: row.polarity ? parseFloat(row.polarity) : null,
             sentiment_score: row.polarity ? parseFloat(row.polarity) : null,
             sentiment_category: row.sentiment?.trim() || null,
+            topics: row.topic_labels
+              ? row.topic_labels.split('; ').map(t => t.trim()).filter(Boolean)
+              : [],
+            emotional_markers: row.extracted_keywords
+              ? row.extracted_keywords.split('; ').map(k => k.trim()).filter(Boolean)
+              : [],
             is_analyzed: true,
           };
         });
