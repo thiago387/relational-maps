@@ -302,7 +302,7 @@ export function Dashboard() {
               </CollapsibleSection>
 
               <CollapsibleSection title="Topics" icon={Tags}>
-                <TopicsPanel emails={emails} graphNodes={graphData.nodes} filters={filters} />
+                <TopicsPanel emails={emails} edges={edges} filters={filters} />
               </CollapsibleSection>
 
               <CollapsibleSection title="Statistics" icon={BarChart3}>
