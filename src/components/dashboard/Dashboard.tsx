@@ -144,7 +144,7 @@ export function Dashboard() {
           `}
         >
           <ScrollArea className="h-full w-full">
-            <div className="p-4 space-y-4 min-w-0 w-full">
+            <div className="p-4 space-y-4 min-w-0 w-full overflow-hidden">
               <ImportPanel
                 onLoadData={loadData}
                 onClear={clearData}
