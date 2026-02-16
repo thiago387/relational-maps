@@ -97,7 +97,7 @@ export function ClusterPanel({ graphData, selectedCommunities, onCommunityToggle
   }
 
   return (
-    <div className="space-y-3 p-4 bg-card rounded-lg border border-border">
+    <div className="space-y-3 p-4 bg-card rounded-lg border border-border overflow-hidden min-w-0">
       <h3 className="font-semibold flex items-center gap-2">
         <Users className="h-4 w-4" />
         Clusters ({clusters.length} detected)
