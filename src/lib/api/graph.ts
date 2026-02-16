@@ -279,12 +279,25 @@ export function buildGraphFromEdges(
     }
   });
 
-  // Calculate and assign average sentiment to each node
+  // Calculate and assign average sentiment + bridge detection
+  // Bridge: node connects to 2+ different communities
+  const nodeCommunityNeighbors = new Map<string, Set<number>>();
+  filteredEdges.forEach(edge => {
+    const sCom = communityMap.get(edge.sender_id) ?? -1;
+    const rCom = communityMap.get(edge.recipient_id) ?? -1;
+    if (!nodeCommunityNeighbors.has(edge.sender_id)) nodeCommunityNeighbors.set(edge.sender_id, new Set());
+    if (!nodeCommunityNeighbors.has(edge.recipient_id)) nodeCommunityNeighbors.set(edge.recipient_id, new Set());
+    if (rCom >= 0) nodeCommunityNeighbors.get(edge.sender_id)!.add(rCom);
+    if (sCom >= 0) nodeCommunityNeighbors.get(edge.recipient_id)!.add(sCom);
+  });
+
   nodeMap.forEach((node, id) => {
     const stats = nodeSentimentStats.get(id);
     if (stats && stats.totalMessages > 0) {
       node.avgSentiment = stats.totalPolarity / stats.totalMessages;
     }
+    const neighborCommunities = nodeCommunityNeighbors.get(id);
+    node.isBridge = neighborCommunities ? neighborCommunities.size >= 2 : false;
   });
 
   // Convert node map to array and adjust sizes

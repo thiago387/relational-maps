@@ -8,12 +8,26 @@ interface NetworkGraphProps {
   onNodeClick?: (node: GraphNode) => void;
   onLinkClick?: (link: GraphLink) => void;
   selectedNodeId?: string | null;
+  highlightedNodeIds?: Set<string> | null;
 }
 
-export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }: NetworkGraphProps) {
+export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId, highlightedNodeIds }: NetworkGraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const animFrameRef = useRef<number>(0);
+
+  // Animate highlight pulse
+  useEffect(() => {
+    if (!highlightedNodeIds) return;
+    let running = true;
+    const tick = () => {
+      animFrameRef.current = Date.now();
+      if (running) requestAnimationFrame(tick);
+    };
+    tick();
+    return () => { running = false; };
+  }, [highlightedNodeIds]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -43,7 +57,6 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
       onNodeClick(node as GraphNode);
     }
     
-    // Center on clicked node
     if (fgRef.current) {
       fgRef.current.centerAt(node.x, node.y, 1000);
       fgRef.current.zoom(2, 1000);
@@ -60,10 +73,15 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
     const label = node.name;
     const fontSize = Math.min(Math.max(10 / globalScale, 2), 14);
     const nodeR = Math.sqrt(node.val) * 2;
+    const isBridge = node.isBridge;
+    const isHighlighted = highlightedNodeIds?.has(node.id);
     
+    // Bridge: slightly larger
+    const drawR = isBridge ? nodeR * 1.2 : nodeR;
+
     // Node circle
     ctx.beginPath();
-    ctx.arc(node.x, node.y, nodeR, 0, 2 * Math.PI);
+    ctx.arc(node.x, node.y, drawR, 0, 2 * Math.PI);
     ctx.fillStyle = node.color;
     ctx.fill();
     
@@ -77,9 +95,31 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
     // Sentiment indicator ring
     if (node.avgSentiment !== null) {
       ctx.beginPath();
-      ctx.arc(node.x, node.y, nodeR + 3, 0, 2 * Math.PI);
+      ctx.arc(node.x, node.y, drawR + 3, 0, 2 * Math.PI);
       ctx.strokeStyle = getSentimentColor(node.avgSentiment);
       ctx.lineWidth = 2 / globalScale;
+      ctx.stroke();
+    }
+
+    // Bridge indicator: dashed outer ring
+    if (isBridge) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, drawR + 6, 0, 2 * Math.PI);
+      ctx.setLineDash([4 / globalScale, 3 / globalScale]);
+      ctx.strokeStyle = 'hsl(45, 100%, 60%)';
+      ctx.lineWidth = 1.5 / globalScale;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Highlight pulse
+    if (isHighlighted) {
+      const t = animFrameRef.current || Date.now();
+      const pulse = 0.4 + 0.6 * Math.abs(Math.sin(t / 400));
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, drawR + 8, 0, 2 * Math.PI);
+      ctx.strokeStyle = `rgba(255, 215, 0, ${pulse})`;
+      ctx.lineWidth = 3 / globalScale;
       ctx.stroke();
     }
     
@@ -90,11 +130,11 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
       ctx.textBaseline = 'top';
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
       ctx.lineWidth = 3 / globalScale;
-      ctx.strokeText(label, node.x, node.y + nodeR + 2);
+      ctx.strokeText(label, node.x, node.y + drawR + 2);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.fillText(label, node.x, node.y + nodeR + 2);
+      ctx.fillText(label, node.x, node.y + drawR + 2);
     }
-  }, [selectedNodeId]);
+  }, [selectedNodeId, highlightedNodeIds]);
 
   const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const start = link.source;
@@ -104,7 +144,6 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
     
     const lineWidth = Math.max(link.value, 1) / globalScale;
     
-    // Draw main line
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
@@ -114,7 +153,6 @@ export function NetworkGraph({ data, onNodeClick, onLinkClick, selectedNodeId }:
     ctx.stroke();
     ctx.globalAlpha = 1;
     
-    // Draw direction arrow if there's asymmetry
     if (link.emailsAtoB !== link.emailsBtoA) {
       const dominant = link.emailsAtoB > link.emailsBtoA ? 'AtoB' : 'BtoA';
       const midX = (start.x + end.x) / 2;

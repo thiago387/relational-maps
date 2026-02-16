@@ -82,6 +82,7 @@ export interface GraphNode {
   communityId: number | null;
   emailCount: number;
   avgSentiment: number | null;
+  isBridge?: boolean;
 }
 
 export interface GraphLink {
