@@ -1,25 +1,27 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import type { Email, GraphNode, FilterState } from '@/types/graph';
+import type { Email, Edge, FilterState } from '@/types/graph';
 import { cn } from '@/lib/utils';
+import { detectCommunities } from '@/lib/communityDetection';
 
 interface TopicsPanelProps {
   emails: Email[];
   onTopicFilter?: (topic: string | null) => void;
-  graphNodes?: GraphNode[];
+  edges?: Edge[];
   filters?: FilterState;
 }
 
-export function TopicsPanel({ emails, onTopicFilter, graphNodes, filters }: TopicsPanelProps) {
+export function TopicsPanel({ emails, onTopicFilter, edges, filters }: TopicsPanelProps) {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
 
-  // Build sender->community lookup
+  // Build sender->community lookup from full (unfiltered) edges
   const senderCommunityMap = useMemo(() => {
-    if (!graphNodes) return null;
+    if (!edges || edges.length === 0) return null;
+    const communities = detectCommunities(edges);
     const map = new Map<string, number | null>();
-    graphNodes.forEach(n => map.set(n.id, n.communityId));
+    communities.forEach((communityId, personId) => map.set(personId, communityId));
     return map;
-  }, [graphNodes]);
+  }, [edges]);
 
   // Filter emails by community and date range
   const filteredEmails = useMemo(() => {
