@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Loader2, Menu, X, Sun, Moon, Database, Filter, Users, BarChart3, Download,
-  CalendarDays, Crown, Tags, LogOut
+  CalendarDays, Crown, Tags, LogOut, Shield
 } from 'lucide-react';
 import { ChatPanel } from '@/components/dashboard/ChatPanel';
 import { useAuth } from '@/hooks/useAuth';
@@ -66,7 +66,7 @@ export function Dashboard() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const theme = useTheme();
-  const { signOut } = useAuth();
+  const { signOut, isAdmin } = useAuth();
   const {
     persons,
     relationships,
@@ -180,6 +180,11 @@ export function Dashboard() {
         <Button variant="ghost" size="icon" onClick={theme.toggle} className="flex-shrink-0">
           {theme.dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
+        {isAdmin && (
+          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/users')} className="flex-shrink-0" title="Manage Users">
+            <Shield className="h-5 w-5" />
+          </Button>
+        )}
         <Button variant="ghost" size="icon" onClick={signOut} className="flex-shrink-0" title="Sign Out">
           <LogOut className="h-5 w-5" />
         </Button>
