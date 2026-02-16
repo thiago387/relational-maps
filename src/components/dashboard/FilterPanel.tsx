@@ -240,7 +240,7 @@ export function FilterPanel({
             <Users className="h-3 w-3" />
             Communities ({communities.length})
           </Label>
-          <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto w-full overflow-x-hidden">
+          <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto w-full max-w-full overflow-x-hidden">
             {communities.filter(c => c !== null).map(communityId => (
               <button
                 key={communityId}
