@@ -240,13 +240,13 @@ export function FilterPanel({
             <Users className="h-3 w-3" />
             Communities ({communities.length})
           </Label>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
             {communities.filter(c => c !== null).map(communityId => (
               <button
                 key={communityId}
                 onClick={() => handleCommunityToggle(communityId!)}
                 className={cn(
-                  "px-2 py-1 rounded-full text-xs font-medium transition-all",
+                  "px-1.5 py-0.5 rounded-full text-[10px] font-medium transition-all",
                   filters.selectedCommunities.includes(communityId!)
                     ? "ring-2 ring-primary ring-offset-1"
                     : "opacity-70 hover:opacity-100"
