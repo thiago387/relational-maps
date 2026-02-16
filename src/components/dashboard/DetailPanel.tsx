@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { X, Mail, User, ArrowRight, ArrowLeft, TrendingUp, TrendingDown, ExternalLink } from 'lucide-react';
+import { X, Mail, User, ArrowRight, ArrowLeft, TrendingUp, TrendingDown, ExternalLink, Focus } from 'lucide-react';
 import type { GraphNode, GraphLink, Email, Person, Relationship } from '@/types/graph';
 import { getSentimentColor, getCommunityColor } from '@/lib/api/graph';
 import { format } from 'date-fns';
@@ -17,6 +17,7 @@ interface DetailPanelProps {
   emails: Email[];
   onClose: () => void;
   onViewMessages?: (person?: string, sender?: string, recipient?: string) => void;
+  onIsolateNetwork?: (nodeId: string) => void;
 }
 
 export function DetailPanel({
@@ -27,6 +28,7 @@ export function DetailPanel({
   emails,
   onClose,
   onViewMessages,
+  onIsolateNetwork,
 }: DetailPanelProps) {
   if (!selectedNode && !selectedLink) return null;
 
@@ -49,6 +51,7 @@ export function DetailPanel({
             persons={persons}
             emails={emails}
             onViewMessages={onViewMessages}
+            onIsolateNetwork={onIsolateNetwork}
           />
         )}
         {selectedLink && (
@@ -70,12 +73,14 @@ function PersonDetail({
   persons,
   emails,
   onViewMessages,
+  onIsolateNetwork,
 }: { 
   node: GraphNode; 
   relationships: Relationship[];
   persons: Person[];
   emails: Email[];
   onViewMessages?: (person?: string, sender?: string, recipient?: string) => void;
+  onIsolateNetwork?: (nodeId: string) => void;
 }) {
   const person = persons.find(p => p.id === node.id);
   
@@ -182,6 +187,17 @@ function PersonDetail({
           >
             <ExternalLink className="h-4 w-4 mr-2" />
             View All Messages
+          </Button>
+        )}
+
+        {onIsolateNetwork && (
+          <Button 
+            onClick={() => onIsolateNetwork(node.id)} 
+            className="w-full"
+            variant="secondary"
+          >
+            <Focus className="h-4 w-4 mr-2" />
+            Isolate Network
           </Button>
         )}
       </TabsContent>

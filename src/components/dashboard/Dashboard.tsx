@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGraphData } from '@/hooks/useGraphData';
 import { NetworkGraph } from '@/components/dashboard/NetworkGraph';
@@ -8,22 +8,69 @@ import { DetailPanel } from '@/components/dashboard/DetailPanel';
 import { ImportPanel } from '@/components/dashboard/ImportPanel';
 import { ExportPanel } from '@/components/dashboard/ExportPanel';
 import { ClusterPanel } from '@/components/dashboard/ClusterPanel';
+import { TimelinePanel } from '@/components/dashboard/TimelinePanel';
+import { KeyPlayersPanel } from '@/components/dashboard/KeyPlayersPanel';
+import { TopicsPanel } from '@/components/dashboard/TopicsPanel';
+import { GraphSearchOverlay } from '@/components/dashboard/GraphSearchOverlay';
+import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Loader2, Menu, X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import {
+  Loader2, Menu, X, Sun, Moon, Database, Filter, Users, BarChart3, Download,
+  CalendarDays, Crown, Tags
+} from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import type { GraphNode, GraphLink } from '@/types/graph';
+import type { GraphNode, GraphLink, GraphData } from '@/types/graph';
+
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    const stored = localStorage.getItem('theme');
+    if (stored) return stored === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  }, [dark]);
+
+  return { dark, toggle: () => setDark(d => !d) };
+}
+
+// Filter graph data for ego network mode
+function filterEgoNetwork(data: GraphData, egoNodeId: string): GraphData {
+  const neighborIds = new Set<string>();
+  neighborIds.add(egoNodeId);
+
+  data.links.forEach(link => {
+    const s = typeof link.source === 'string' ? link.source : (link.source as any).id;
+    const t = typeof link.target === 'string' ? link.target : (link.target as any).id;
+    if (s === egoNodeId) neighborIds.add(t);
+    if (t === egoNodeId) neighborIds.add(s);
+  });
+
+  const nodes = data.nodes.filter(n => neighborIds.has(n.id));
+  const links = data.links.filter(link => {
+    const s = typeof link.source === 'string' ? link.source : (link.source as any).id;
+    const t = typeof link.target === 'string' ? link.target : (link.target as any).id;
+    return neighborIds.has(s) && neighborIds.has(t);
+  });
+
+  return { nodes, links };
+}
 
 export function Dashboard() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const theme = useTheme();
   const {
     persons,
     relationships,
     edges,
     emails,
     stats,
-    graphData,
+    graphData: rawGraphData,
     communities,
     dateRange,
     filters,
@@ -39,10 +86,20 @@ export function Dashboard() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [selectedLink, setSelectedLink] = useState<GraphLink | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const [egoNodeId, setEgoNodeId] = useState<string | null>(null);
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     setSidebarOpen(!isMobile);
   }, [isMobile]);
+
+  // Apply ego network filter
+  const graphData = useMemo(() => {
+    if (egoNodeId) {
+      return filterEgoNetwork(rawGraphData, egoNodeId);
+    }
+    return rawGraphData;
+  }, [rawGraphData, egoNodeId]);
 
   const graphStats = useMemo(() => ({
     nodesCount: graphData.nodes.length,
@@ -73,6 +130,22 @@ export function Dashboard() {
     }
   };
 
+  const handleSelectPerson = useCallback((personId: string) => {
+    setFilters({ ...filters, selectedPerson: personId });
+    const node = graphData.nodes.find(n => n.id === personId);
+    if (node) setSelectedNode(node);
+  }, [filters, setFilters, graphData.nodes]);
+
+  const handleHighlight = useCallback((ids: Set<string> | null) => {
+    setHighlightedNodeIds(ids);
+  }, []);
+
+  const egoPersonName = useMemo(() => {
+    if (!egoNodeId) return '';
+    const node = rawGraphData.nodes.find(n => n.id === egoNodeId);
+    return node?.name || egoNodeId;
+  }, [egoNodeId, rawGraphData.nodes]);
+
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
@@ -93,7 +166,7 @@ export function Dashboard() {
         >
           {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">
             📧 Epstein Email Network Analysis
           </h1>
@@ -101,6 +174,9 @@ export function Dashboard() {
             Interactive visualization of email communications with sentiment analysis
           </p>
         </div>
+        <Button variant="ghost" size="icon" onClick={theme.toggle} className="flex-shrink-0">
+          {theme.dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </Button>
       </header>
 
       {/* Main content */}
@@ -121,8 +197,26 @@ export function Dashboard() {
               onNodeClick={handleNodeClick}
               onLinkClick={handleLinkClick}
               selectedNodeId={selectedNode?.id}
+              highlightedNodeIds={highlightedNodeIds}
             />
           </div>
+
+          {/* Graph search overlay */}
+          <GraphSearchOverlay emails={emails} onHighlight={handleHighlight} />
+
+          {/* Ego mode dismiss chip */}
+          {egoNodeId && (
+            <div className="absolute top-3 left-3 z-10">
+              <Badge
+                variant="secondary"
+                className="text-xs shadow-md bg-background/90 backdrop-blur cursor-pointer gap-1 pr-1"
+                onClick={() => setEgoNodeId(null)}
+              >
+                Ego: {egoPersonName}
+                <X className="h-3 w-3 ml-1" />
+              </Badge>
+            </div>
+          )}
           
           <DetailPanel
             selectedNode={selectedNode}
@@ -132,6 +226,7 @@ export function Dashboard() {
             emails={emails}
             onClose={handleCloseDetail}
             onViewMessages={handleViewMessages}
+            onIsolateNetwork={(nodeId) => setEgoNodeId(nodeId)}
           />
         </main>
 
@@ -144,43 +239,72 @@ export function Dashboard() {
           `}
         >
           <ScrollArea className="h-full w-full">
-            <div className="p-4 space-y-4 min-w-0 w-full overflow-hidden">
-              <ImportPanel
-                onLoadData={loadData}
-                onClear={clearData}
-                onRefresh={refreshAll}
-                isLoadingData={isLoadingData}
-                isClearing={isClearing}
-                stats={stats}
-              />
-              
-              <FilterPanel
-                filters={filters}
-                onFiltersChange={setFilters}
-                persons={persons}
-                communities={communities}
-                dateRange={dateRange}
-              />
+            <div className="p-4 space-y-2 min-w-0 w-full overflow-hidden">
+              <CollapsibleSection title="Dataset" icon={Database}>
+                <ImportPanel
+                  onLoadData={loadData}
+                  onClear={clearData}
+                  onRefresh={refreshAll}
+                  isLoadingData={isLoadingData}
+                  isClearing={isClearing}
+                  stats={stats}
+                />
+              </CollapsibleSection>
 
-              <ClusterPanel
-                graphData={graphData}
-                selectedCommunities={filters.selectedCommunities}
-                onCommunityToggle={(communityId) => {
-                  const newCommunities = filters.selectedCommunities.includes(communityId)
-                    ? filters.selectedCommunities.filter(c => c !== communityId)
-                    : [...filters.selectedCommunities, communityId];
-                  setFilters({ ...filters, selectedCommunities: newCommunities });
-                }}
-              />
-              
-              <StatsPanel stats={stats} graphStats={graphStats} />
-              
-              <ExportPanel
-                graphData={graphData}
-                persons={persons}
-                relationships={relationships}
-                emails={emails}
-              />
+              <CollapsibleSection title="Filters" icon={Filter}>
+                <FilterPanel
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  persons={persons}
+                  communities={communities}
+                  dateRange={dateRange}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Timeline" icon={CalendarDays}>
+                <TimelinePanel
+                  emails={emails}
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Clusters" icon={Users}>
+                <ClusterPanel
+                  graphData={graphData}
+                  selectedCommunities={filters.selectedCommunities}
+                  onCommunityToggle={(communityId) => {
+                    const newCommunities = filters.selectedCommunities.includes(communityId)
+                      ? filters.selectedCommunities.filter(c => c !== communityId)
+                      : [...filters.selectedCommunities, communityId];
+                    setFilters({ ...filters, selectedCommunities: newCommunities });
+                  }}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Key Players" icon={Crown}>
+                <KeyPlayersPanel
+                  graphData={graphData}
+                  onSelectPerson={handleSelectPerson}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Topics" icon={Tags}>
+                <TopicsPanel emails={emails} />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Statistics" icon={BarChart3}>
+                <StatsPanel stats={stats} graphStats={graphStats} />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Export" icon={Download}>
+                <ExportPanel
+                  graphData={graphData}
+                  persons={persons}
+                  relationships={relationships}
+                  emails={emails}
+                />
+              </CollapsibleSection>
             </div>
           </ScrollArea>
         </aside>
