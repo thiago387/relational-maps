@@ -4,10 +4,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MessageSquare, X, Plus, Send, Loader2 } from 'lucide-react';
+import { MessageSquare, X, Plus, Send, Loader2, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ReactMarkdown from 'react-markdown';
+import { formatDistanceToNow } from 'date-fns';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 type Conversation = { id: string; title: string; created_at: string };
@@ -23,6 +23,7 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Load conversations
@@ -38,6 +39,13 @@ export function ChatPanel() {
   useEffect(() => {
     if (open) loadConversations();
   }, [open, loadConversations]);
+
+  // Auto-show history when opening without an active conversation
+  useEffect(() => {
+    if (open && !activeConvoId && conversations.length > 0) {
+      setShowHistory(true);
+    }
+  }, [open, activeConvoId, conversations.length]);
 
   // Load messages for active conversation
   useEffect(() => {
@@ -60,6 +68,12 @@ export function ChatPanel() {
   const handleNewChat = () => {
     setActiveConvoId(null);
     setMessages([]);
+    setShowHistory(false);
+  };
+
+  const handleSelectConversation = (id: string) => {
+    setActiveConvoId(id);
+    setShowHistory(false);
   };
 
   const handleSend = async () => {
@@ -184,93 +198,124 @@ export function ChatPanel() {
     );
   }
 
+  const activeConvo = conversations.find(c => c.id === activeConvoId);
+
   return (
     <div className="fixed bottom-6 right-6 z-[60] w-[400px] h-[520px] bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 p-3 border-b border-border flex-shrink-0">
-        <MessageSquare className="h-4 w-4 text-muted-foreground" />
-        <Select
-          value={activeConvoId ?? '__new__'}
-          onValueChange={v => {
-            if (v === '__new__') handleNewChat();
-            else setActiveConvoId(v);
-          }}
+        <Button
+          variant={showHistory ? 'secondary' : 'ghost'}
+          size="icon"
+          className="h-8 w-8 flex-shrink-0"
+          onClick={() => setShowHistory(true)}
+          title="Conversation history"
         >
-          <SelectTrigger className="flex-1 h-8 text-xs">
-            <SelectValue placeholder="New Analysis" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__new__">New Analysis</SelectItem>
-            {conversations.map(c => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleNewChat}>
+          <History className="h-4 w-4" />
+        </Button>
+        <span className="flex-1 text-sm font-medium truncate text-foreground">
+          {showHistory ? 'History' : activeConvo ? activeConvo.title : 'New Analysis'}
+        </span>
+        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={handleNewChat} title="New conversation">
           <Plus className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOpen(false)}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setOpen(false)} title="Close">
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 p-3">
-        <div className="space-y-3">
-          {messages.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center mt-8">
-              Ask me anything about the email network — key players, communities, sentiment trends, relationships…
-            </p>
-          )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground whitespace-pre-wrap'
-                    : 'bg-muted text-foreground prose prose-sm dark:prose-invert max-w-none prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5'
+      {showHistory ? (
+        /* History list */
+        <ScrollArea className="flex-1 p-3">
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2 text-sm"
+              onClick={handleNewChat}
+            >
+              <Plus className="h-4 w-4" />
+              New Analysis
+            </Button>
+            {conversations.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center mt-6">
+                No conversations yet. Start a new analysis!
+              </p>
+            )}
+            {conversations.map(c => (
+              <button
+                key={c.id}
+                onClick={() => handleSelectConversation(c.id)}
+                className={`w-full text-left rounded-lg border border-border p-3 hover:bg-accent transition-colors ${
+                  c.id === activeConvoId ? 'bg-accent border-primary/50' : 'bg-card'
                 }`}
               >
-                {msg.role === 'assistant' ? (
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                ) : (
-                  msg.content
-                )}
-              </div>
+                <p className="text-sm font-medium text-foreground truncate">{c.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                </p>
+              </button>
+            ))}
+          </div>
+        </ScrollArea>
+      ) : (
+        <>
+          {/* Messages */}
+          <ScrollArea className="flex-1 p-3">
+            <div className="space-y-3">
+              {messages.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center mt-8">
+                  Ask me anything about the email network — key players, communities, sentiment trends, relationships…
+                </p>
+              )}
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                      msg.role === 'user'
+                        ? 'bg-primary text-primary-foreground whitespace-pre-wrap'
+                        : 'bg-muted text-foreground prose prose-sm dark:prose-invert max-w-none prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5'
+                    }`}
+                  >
+                    {msg.role === 'assistant' ? (
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    ) : (
+                      msg.content
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isStreaming && messages[messages.length - 1]?.role !== 'assistant' && (
+                <div className="flex justify-start">
+                  <div className="bg-muted rounded-lg px-3 py-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                </div>
+              )}
+              <div ref={scrollRef} />
             </div>
-          ))}
-          {isStreaming && messages[messages.length - 1]?.role !== 'assistant' && (
-            <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-3 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            </div>
-          )}
-          <div ref={scrollRef} />
-        </div>
-      </ScrollArea>
+          </ScrollArea>
 
-      {/* Input */}
-      <div className="p-3 border-t border-border flex gap-2 flex-shrink-0">
-        <Textarea
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about the network…"
-          className="min-h-[40px] max-h-[80px] resize-none text-sm"
-          disabled={isStreaming}
-        />
-        <Button
-          size="icon"
-          onClick={handleSend}
-          disabled={isStreaming || !input.trim()}
-          className="flex-shrink-0 h-10 w-10"
-        >
-          <Send className="h-4 w-4" />
-        </Button>
-      </div>
+          {/* Input */}
+          <div className="p-3 border-t border-border flex gap-2 flex-shrink-0">
+            <Textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about the network…"
+              className="min-h-[40px] max-h-[80px] resize-none text-sm"
+              disabled={isStreaming}
+            />
+            <Button
+              size="icon"
+              onClick={handleSend}
+              disabled={isStreaming || !input.trim()}
+              className="flex-shrink-0 h-10 w-10"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
