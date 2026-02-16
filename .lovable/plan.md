@@ -1,25 +1,40 @@
 
-## Fix: Community Buttons Overflowing Sidebar Horizontally
+## Fix: Community Buttons Horizontal Overflow (Root Cause)
 
-The community buttons container uses `flex-wrap` but has no explicit width constraint. The parent `<div className="space-y-6 p-4 bg-card rounded-lg border border-border">` doesn't enforce a max-width on its children, so the flex row of buttons extends past the sidebar edge instead of wrapping.
+The Radix ScrollArea Viewport internally sets `overflow: scroll` on both axes, giving children an unbounded horizontal content area. This prevents `flex-wrap` from ever triggering on the 108 community buttons.
 
-### Root Cause
+### 3 Targeted Changes
 
-The FilterPanel's outer container and the communities `div` both lack `overflow-hidden` and explicit width constraints. Flex-wrap only works when the container has a defined width -- without one, items just keep flowing horizontally.
+**1. `src/components/ui/scroll-area.tsx` (line 11) -- Kill horizontal scroll on Viewport**
 
-### Fix (1 file: `src/components/dashboard/FilterPanel.tsx`)
+Add an inline style to override Radix's internal `overflow: scroll` on the X axis:
+```
+Current:  <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+Updated:  <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]" style={{ overflowX: 'hidden' }}>
+```
 
-1. **Add `overflow-hidden` to the FilterPanel root container** (line 72) to prevent any child from bleeding out:
-   ```
-   Current:  <div className="space-y-6 p-4 bg-card rounded-lg border border-border">
-   Updated:  <div className="space-y-6 p-4 bg-card rounded-lg border border-border overflow-hidden">
-   ```
+**2. `src/components/dashboard/Dashboard.tsx` (line 147) -- Belt-and-suspenders on inner div**
 
-2. **Add `w-full` and `overflow-hidden` to the communities wrapper** (line 243) so flex-wrap is forced to wrap within the available width:
-   ```
-   Current:  <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-   Updated:  <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto w-full overflow-x-hidden">
-   ```
-   Also increased `max-h-32` to `max-h-48` to show more rows (about 5 rows visible before scrolling).
+Add `overflow-hidden` to prevent any child from pushing beyond 640px:
+```
+Current:  <div className="p-4 space-y-4 min-w-0 w-full">
+Updated:  <div className="p-4 space-y-4 min-w-0 w-full overflow-hidden">
+```
 
-These two changes ensure the buttons are forced to wrap within the sidebar width and any overflow is clipped.
+**3. `src/components/dashboard/FilterPanel.tsx` (line 243) -- Add `max-w-full` safety net**
+
+Ensure the badge container cannot exceed its parent's width:
+```
+Current:  <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto w-full overflow-x-hidden">
+Updated:  <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto w-full max-w-full overflow-x-hidden">
+```
+
+### Why Previous Fixes Failed
+
+`min-w-0` says "I'm allowed to shrink" but nothing forced it to shrink -- the Radix Viewport was expanding to fit intrinsic content width. Change 1 is the real fix; changes 2 and 3 are defense-in-depth.
+
+| File | Line | Change |
+|------|------|--------|
+| scroll-area.tsx | 11 | Add `style={{ overflowX: 'hidden' }}` to Viewport |
+| Dashboard.tsx | 147 | Add `overflow-hidden` to sidebar inner div |
+| FilterPanel.tsx | 243 | Add `max-w-full` to communities container |
