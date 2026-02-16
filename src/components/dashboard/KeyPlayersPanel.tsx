@@ -3,7 +3,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getSentimentColor } from '@/lib/api/graph';
 import type { GraphData } from '@/types/graph';
 import { cn } from '@/lib/utils';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, Info } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 interface KeyPlayersPanelProps {
   graphData: GraphData;
@@ -154,6 +155,27 @@ export function KeyPlayersPanel({ graphData, onSelectPerson }: KeyPlayersPanelPr
 
   return (
     <div className="p-2 overflow-x-auto">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-xs font-medium text-muted-foreground">Top 20 by selected metric</span>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="text-muted-foreground hover:text-foreground transition-colors">
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 text-xs space-y-2" side="left">
+            <p className="font-semibold text-sm">How Key Players are identified</p>
+            <p>The top 20 individuals are ranked by the selected column (click any header to sort). Metrics:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><strong>Deg</strong> (Degree) — Number of unique contacts. High degree = well-connected hub.</li>
+              <li><strong>Btw</strong> (Betweenness) — How often a person sits on the shortest path between others. High betweenness = gatekeeper or broker.</li>
+              <li><strong>Vol</strong> (Volume) — Total email count for this person.</li>
+              <li><strong>Snt</strong> (Sentiment) — Average sentiment polarity across all emails (-1 to 1).</li>
+            </ul>
+            <p className="text-muted-foreground">Default sort: Betweenness (desc), highlighting individuals who bridge different parts of the network.</p>
+          </PopoverContent>
+        </Popover>
+      </div>
       <Table>
         <TableHeader>
           <TableRow>
