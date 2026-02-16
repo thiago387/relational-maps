@@ -82,6 +82,26 @@ function computeClusterSummaries(graphData: GraphData): ClusterSummary[] {
   return summaries.sort((a, b) => b.memberCount - a.memberCount);
 }
 
+function formatMemberName(id: string): string {
+  const local = id.includes('@') ? id.split('@')[0] : id;
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
+function generateClusterName(cluster: ClusterSummary): string {
+  if (cluster.members.length === 0) return `Cluster #${cluster.id}`;
+  const topName = formatMemberName(cluster.members[0].id);
+  if (cluster.members.length === 1) return topName;
+  const suffix = cluster.memberCount >= 50 ? 'Network' : cluster.memberCount >= 10 ? 'Group' : 'Circle';
+  return `${topName} ${suffix}`;
+}
+
+function generateClusterDescription(cluster: ClusterSummary): string {
+  const size = cluster.memberCount >= 50 ? 'Large hub' : cluster.memberCount >= 10 ? 'Mid-size group' : cluster.memberCount >= 3 ? 'Small circle' : 'Pair';
+  const sentiment = cluster.avgSentiment === null ? 'mixed tone' : cluster.avgSentiment > 0.05 ? 'positive tone' : cluster.avgSentiment < -0.05 ? 'negative tone' : 'neutral tone';
+  const connectivity = cluster.internalEdges > 2 * cluster.externalEdges ? 'mostly internal' : cluster.externalEdges > 2 * cluster.internalEdges ? 'outward-facing' : 'balanced connections';
+  return `${size} with ${sentiment}, ${connectivity}`;
+}
+
 function SentimentIndicator({ sentiment }: { sentiment: number | null }) {
   if (sentiment === null) return <Minus className="h-3 w-3 text-muted-foreground" />;
   if (sentiment > 0.1) return <TrendingUp className="h-3 w-3 text-green-500" />;
@@ -125,8 +145,8 @@ export function ClusterPanel({ graphData, selectedCommunities, onCommunityToggle
                     className="inline-block w-3 h-3 rounded-full flex-shrink-0"
                     style={{ backgroundColor: cluster.color }}
                   />
-                  <span className="text-sm font-medium">
-                    Cluster #{cluster.id}
+                  <span className="text-sm font-medium truncate">
+                    {generateClusterName(cluster)}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {cluster.memberCount} members
@@ -138,6 +158,10 @@ export function ClusterPanel({ graphData, selectedCommunities, onCommunityToggle
                     {cluster.avgSentiment !== null ? cluster.avgSentiment.toFixed(2) : '—'}
                   </span>
                 </div>
+              </div>
+
+              <div className="text-[11px] italic text-muted-foreground truncate mb-0.5">
+                {generateClusterDescription(cluster)}
               </div>
 
               <div className="text-xs text-muted-foreground truncate">
