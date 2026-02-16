@@ -1,67 +1,72 @@
 
 
-## Auto-Generated Cluster Names and Descriptions
+## Ingest Pre-Computed Topics and Keywords into the Topics Panel
 
-### Overview
+### Why It's Empty Now
 
-Add an auto-generated name and short description to each cluster card in the Cluster Panel. Since clusters are computed dynamically (Louvain algorithm, 108 clusters), names and descriptions will be derived from each cluster's characteristics -- no manual labeling needed.
-
----
-
-### Naming Strategy
-
-Each cluster gets a name based on its **top member** (the person with the highest email count), displayed as a human-readable label:
-- Extract the local part of the top member's email/ID (e.g., `jeevacation@gmail.com` becomes `Jeevacation`)
-- Format: **"Jeevacation Circle"** or **"KathyRuemmler Group"**
-- For single-member clusters: just the member name
-
-### Description Strategy
-
-A short one-line description derived from structural characteristics:
-- **Size**: "Large hub" (50+), "Mid-size group" (10-49), "Small circle" (3-9), "Pair" (2)
-- **Sentiment**: "positive tone", "negative tone", "neutral tone", or "mixed tone"
-- **Connectivity pattern**: "mostly internal" (internal > 2x external), "outward-facing" (external > 2x internal), "balanced connections"
-
-Example outputs:
-- **"Jeevacation Circle"** -- *Large hub with negative tone, outward-facing*
-- **"TerryKafka Group"** -- *Mid-size group with positive tone, mostly internal*
-- **"RobertTrivers Circle"** -- *Mid-size group with negative tone, balanced connections*
+The current data loader (`precomputedDataLoader.ts`) parses a CSV that does not contain `topic_labels` or `extracted_keywords` columns. The database `topics` and `emotional_markers` columns exist but are never populated during import. Your new CSV (`emails_with_topics.csv`) has these two columns pre-computed for all 65,000+ emails.
 
 ---
 
-### UI Changes
+### What Changes
 
-In the cluster card (the button element), add the name and description **between the header row and the member list**, keeping all existing information intact:
+#### 1. Replace the CSV data file
 
-```
-[dot] Jeevacation Circle  362 members    [sentiment] 0.24
-Large hub with positive tone, outward-facing
-jeevacation@gmail.com, KathyRuemmler, MichaelWolff +359 more
-[arrow] 498 internal  149 external  6416 msgs
-```
+- Copy `emails_with_topics.csv` into `public/emails_with_polarity.csv` (replacing the old one)
+- The new CSV uses semicolon (`;`) as delimiter -- the parser must be updated accordingly
 
-The name replaces "Cluster #0" in the existing header. The description appears as a new italic/muted line below the header.
+#### 2. Update the data loader to ingest topics and keywords
+
+**File: `src/lib/precomputedDataLoader.ts`**
+
+- Change PapaParse delimiter to `";"` for email CSV parsing
+- Update the `EmailRow` interface to include `extracted_keywords` and `topic_labels` fields
+- Map `topic_labels` to the `topics` array column (split on `"; "` since multi-topic entries like `"Legal Counsel & Strategy; Obama & Democratic Politics"` use that separator)
+- Map `extracted_keywords` to the `emotional_markers` array column (split on `"; "`)
+- These get inserted into the existing DB columns -- no schema changes needed
+
+#### 3. Add community and date filtering to TopicsPanel
+
+**File: `src/components/dashboard/TopicsPanel.tsx`**
+
+- Add props: `graphNodes` (for community lookup) and `filters` (for date range + selected communities)
+- Before aggregating topics, filter the emails array:
+  - By selected communities: map `sender_id` to `communityId` via graphNodes, skip emails not in selected communities
+  - By date range: skip emails outside `filters.dateRange`
+- Keep the existing bar chart UI and click-to-filter behavior intact
+- Rename "Emotional Markers" section to "Keywords" since the data now contains extracted keywords rather than emotional markers
+
+#### 4. Pass filter props from Dashboard
+
+**File: `src/components/dashboard/Dashboard.tsx`**
+
+- Update the `<TopicsPanel>` call to pass `graphNodes={graphData.nodes}` and `filters={filters}`
 
 ---
 
-### Technical Details
+### Data Format Examples
 
-**File modified**: `src/components/dashboard/ClusterPanel.tsx` only
+From the CSV:
+- `topic_labels`: `"Legal Counsel & Strategy; Obama & Democratic Politics; Media Inquiries & Press"` (multi-label, semicolon-separated within the field)
+- `extracted_keywords`: `"is clinton; new york magazine; clinton; dershowitz; andrew; times; york; magazine"` (semicolon-separated)
 
-- Add a `generateClusterName(cluster: ClusterSummary)` function:
-  - Takes the top member ID, extracts readable name (split on `@`, capitalize first letter)
-  - Appends "Circle" for small clusters, "Group" for medium, "Network" for large (50+)
+These get split into arrays:
+- `topics`: `["Legal Counsel & Strategy", "Obama & Democratic Politics", "Media Inquiries & Press"]`
+- `emotional_markers`: `["is clinton", "new york magazine", "clinton", ...]`
 
-- Add a `generateClusterDescription(cluster: ClusterSummary)` function:
-  - Builds a short phrase from size category + sentiment label + connectivity pattern
-  - Returns a string like "Large hub with negative tone, outward-facing"
+---
 
-- Update the `ClusterSummary` interface: no changes needed (name/description are derived, not stored)
+### Technical Summary
 
-- In the JSX:
-  - Replace `Cluster #{cluster.id}` with the generated name
-  - Add a new `<div>` with the description text (styled as `text-[11px] italic text-muted-foreground`)
-  - All other elements (member list, sentiment indicator, edge stats) remain unchanged
+| Item | Detail |
+|------|--------|
+| Files modified | `precomputedDataLoader.ts`, `TopicsPanel.tsx`, `Dashboard.tsx` |
+| Files replaced | `public/emails_with_polarity.csv` (with new CSV containing topics) |
+| New dependencies | None |
+| DB schema changes | None -- `topics` and `emotional_markers` columns already exist |
+| Re-import required | Yes -- users need to re-import data to populate the new columns |
 
-### No other files are affected.
+### Important Note
+
+After deploying this change, you will need to re-import the data (clear existing data and reload) so the new `topic_labels` and `extracted_keywords` columns get parsed into the database.
 
