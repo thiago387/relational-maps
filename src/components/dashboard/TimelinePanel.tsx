@@ -54,7 +54,7 @@ export function TimelinePanel({ emails, filters, onFiltersChange }: TimelinePane
 
   return (
     <div className="p-4 space-y-2">
-      <div className="h-48">
+      <div className="h-48 overflow-hidden min-w-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={timelineData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
             <XAxis
