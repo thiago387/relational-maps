@@ -69,7 +69,7 @@ export function FilterPanel({
   };
 
   return (
-    <div className="space-y-6 p-4 bg-card rounded-lg border border-border overflow-hidden">
+    <div className="space-y-6 p-4 bg-card rounded-lg border border-border overflow-hidden min-w-0">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold flex items-center gap-2">
           <Filter className="h-4 w-4" />

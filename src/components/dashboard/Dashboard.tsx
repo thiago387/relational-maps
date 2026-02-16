@@ -143,8 +143,8 @@ export function Dashboard() {
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           `}
         >
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-4">
+          <ScrollArea className="h-full w-full">
+            <div className="p-4 space-y-4 min-w-0 w-full">
               <ImportPanel
                 onLoadData={loadData}
                 onClear={clearData}
