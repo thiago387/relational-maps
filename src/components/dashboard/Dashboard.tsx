@@ -138,7 +138,7 @@ export function Dashboard() {
         {/* Sidebar - ALWAYS fixed overlay */}
         <aside
           className={`
-            fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg border-r border-border
+            fixed inset-y-0 left-0 z-50 w-[640px] bg-background shadow-lg border-r border-border
             transform transition-transform duration-200
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           `}
