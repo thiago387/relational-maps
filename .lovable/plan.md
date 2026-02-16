@@ -1,148 +1,143 @@
 
 
-## AI Analysis Chatbot with Authentication
+## Authentication Overhaul + Admin User Management
 
 ### Overview
 
-Add user authentication (email/password login and signup) to protect the dashboard, then build a floating AI chatbot panel with per-user conversation memory. Only logged-in users can access the dashboard and the chatbot. Each user's chat history is private to them.
+Remove public signup, add role-based admin system, forgot password flow, "keep me logged in" toggle, and seed two initial admin users. Only admins can create new users.
 
 ---
 
 ### Step 1: Database Migration
 
-Create three new tables and configure RLS:
+Create `user_roles` table (per security requirements, roles MUST be in a separate table):
 
-**`profiles`** -- auto-created on signup via trigger
-- `id` uuid PK (references auth.users ON DELETE CASCADE)
-- `email` text
-- `display_name` text nullable
-- `created_at` timestamptz
+```sql
+CREATE TYPE public.app_role AS ENUM ('admin', 'user');
 
-**`chat_conversations`** -- per-user conversation sessions
-- `id` uuid PK
-- `user_id` uuid NOT NULL (references auth.users ON DELETE CASCADE)
-- `title` text default 'New Analysis'
-- `created_at` / `updated_at` timestamptz
+CREATE TABLE public.user_roles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  role app_role NOT NULL,
+  UNIQUE (user_id, role)
+);
 
-**`chat_messages`** -- individual messages within a conversation
-- `id` uuid PK
-- `conversation_id` uuid FK -> chat_conversations ON DELETE CASCADE
-- `role` text NOT NULL ('user' or 'assistant')
-- `content` text NOT NULL
-- `created_at` timestamptz
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 
-**RLS policies** (all tables):
-- profiles: users can SELECT/UPDATE only their own row (`auth.uid() = id`)
-- chat_conversations: users can SELECT/INSERT/UPDATE/DELETE only their own rows (`auth.uid() = user_id`)
-- chat_messages: users can SELECT/INSERT rows only where the parent conversation belongs to them (via a subquery or security definer function)
+-- Security definer function to check roles without RLS recursion
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role app_role)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = _user_id AND role = _role
+  )
+$$;
 
-**Trigger**: auto-create a profile row when a new user signs up via `auth.users` INSERT trigger.
+-- RLS: users can read their own roles; admins can read all
+CREATE POLICY "Users can view own roles" ON public.user_roles
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins can view all roles" ON public.user_roles
+  FOR SELECT USING (public.has_role(auth.uid(), 'admin'));
+```
 
 ---
 
-### Step 2: Authentication UI
+### Step 2: Edge Function `admin-create-user`
 
-**New file: `src/pages/Auth.tsx`**
-- A login/signup page with two tabs: "Sign In" and "Sign Up"
-- Email + password fields using existing shadcn Input, Button, Tabs components
-- Calls `supabase.auth.signInWithPassword()` and `supabase.auth.signUp()`
+New file: `supabase/functions/admin-create-user/index.ts`
+
+- Validates caller's JWT, checks they have `admin` role via the `has_role` function
+- Accepts `{ email, password, role }` in POST body
+- Uses Supabase Admin API (`supabase.auth.admin.createUser`) with `email_confirm: true` to create the user (no email verification needed)
+- Inserts a row into `user_roles` for the new user
+- Returns the created user info
+
+Config addition: `[functions.admin-create-user] verify_jwt = false`
+
+---
+
+### Step 3: Seed Admin Users
+
+Create a one-time edge function `seed-admins` (or use the `admin-create-user` function after deployment) to create:
+
+- `thiago@hiddenlaier.com` / `Thiago2026*` with `admin` role
+- `alex@hiddenlaier.com` / `Alex2026*` with `admin` role
+
+Both created with `email_confirm: true` so they can log in immediately. After seeding, the function can be removed.
+
+---
+
+### Step 4: Simplify Auth Page
+
+**Modify `src/pages/Auth.tsx`**:
+- Remove the Tabs component and signup form entirely
+- Show only a login form (email + password)
+- Add a "Forgot password?" link below the password field
+- Add a "Keep me logged in" checkbox (defaults to checked)
+
+**"Keep me logged in" implementation**:
+- When unchecked, switch Supabase auth storage from `localStorage` to `sessionStorage` (session dies when browser closes)
+- This is handled by creating the Supabase client with dynamic storage, or by calling `supabase.auth.signInWithPassword` and then clearing the session from localStorage on signout
+- Simplest approach: store a flag in localStorage. On login, if "keep me logged in" is unchecked, listen for `beforeunload` and sign out. More robust: use a wrapper that swaps `persistSession` behavior.
+
+Practical approach: 
+- Add a checkbox state `rememberMe` (default true)
+- After successful login, if `!rememberMe`, store a flag `session_transient=true` in sessionStorage
+- In `useAuth.ts`, on mount, if `session_transient` is in sessionStorage and the page is freshly opened (no session in sessionStorage), sign out
+
+---
+
+### Step 5: Forgot Password Flow
+
+**Modify `src/pages/Auth.tsx`**:
+- Add a "Forgot password?" link that shows a separate form (email input + "Send reset link" button)
+- Calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/reset-password' })`
+
+**New file: `src/pages/ResetPassword.tsx`**:
+- Public route at `/reset-password`
+- On mount, checks for `type=recovery` in URL hash (Supabase redirects here with a token)
+- Shows a "New password" + "Confirm password" form
+- Calls `supabase.auth.updateUser({ password })` to set the new password
 - On success, redirects to `/`
-- Clean, centered card layout matching the dark/light theme
 
-**New file: `src/hooks/useAuth.ts`**
-- Custom hook wrapping `supabase.auth.onAuthStateChange` and `supabase.auth.getSession`
-- Returns `{ user, session, loading, signOut }`
-- Sets up the listener BEFORE calling getSession (per best practices)
-
-**New file: `src/components/ProtectedRoute.tsx`**
-- Wraps children; if no session and not loading, redirects to `/auth`
-- Shows a spinner while loading
-
-**Updates to `src/App.tsx`**:
-- Add `/auth` route pointing to Auth page
-- Wrap `/` and `/messages` routes in ProtectedRoute
-
-**Update to `src/components/dashboard/Dashboard.tsx`**:
-- Add a "Sign Out" button in the header (e.g., a LogOut icon button next to the theme toggle)
-- Uses `supabase.auth.signOut()`
+**Update `src/App.tsx`**: Add `<Route path="/reset-password" element={<ResetPassword />} />`
 
 ---
 
-### Step 3: Edge Function `chat-analysis`
+### Step 6: Admin Panel for User Management
 
-**New file: `supabase/functions/chat-analysis/index.ts`**
+**New file: `src/pages/AdminUsers.tsx`**:
+- Protected route, only accessible to admins
+- Shows a list of existing users (fetched via a new edge function `admin-list-users`)
+- "Create User" form: email, password, role dropdown (admin/user)
+- Calls the `admin-create-user` edge function
+- Shows success/error toasts
 
-Config in `supabase/config.toml`:
-```
-[functions.chat-analysis]
-verify_jwt = false
-```
+**New file: `src/components/AdminRoute.tsx`**:
+- Like ProtectedRoute but also checks `has_role(uid, 'admin')` via a query to `user_roles`
+- Redirects non-admins to `/`
 
-Flow:
-1. Validate the JWT from Authorization header using `getClaims()`
-2. Extract `user_id` from claims
-3. Receive `{ message, conversation_id? }` via POST
-4. If no `conversation_id`, create a new row in `chat_conversations` (with `user_id`)
-5. Save the user message to `chat_messages`
-6. Load conversation history (last 20 messages) from `chat_messages`
-7. Query the DB for a **data context summary**:
-   - Total counts (emails, persons, edges)
-   - Top 10 persons by email volume
-   - Community summary
-   - Top 10 topics
-8. Build system prompt with the data context, instructing the model to be a network analysis expert
-9. Call Lovable AI gateway (`google/gemini-3-flash-preview`) with streaming
-10. Stream SSE response back to client
-11. After stream completes, save the full assistant message to `chat_messages`
+**Update `src/App.tsx`**: Add `/admin/users` route wrapped in AdminRoute
+
+**Update `src/components/dashboard/Dashboard.tsx`**: Add a "Manage Users" button (visible only to admins) in the header, linking to `/admin/users`
 
 ---
 
-### Step 4: ChatPanel Component
-
-**New file: `src/components/dashboard/ChatPanel.tsx`**
-
-Two visual states:
-
-**Collapsed** (default): A circular button with a MessageSquare icon, fixed to bottom-left (above sidebar z-index), z-60.
-
-**Expanded**: A 400px wide, ~500px tall panel anchored bottom-left with:
-- **Header**: conversation title, a dropdown to switch between past conversations, "New Chat" button, minimize button
-- **Messages area**: ScrollArea with messages. User messages right-aligned (blue bubble), assistant messages left-aligned (gray bubble), rendered with `whitespace-pre-wrap` for basic formatting
-- **Input area**: textarea + send button, disabled while streaming
-
-Features:
-- Fetches conversations list from `chat_conversations` WHERE `user_id` matches (via Supabase client which auto-attaches the JWT)
-- Switching conversations loads that conversation's messages from `chat_messages`
-- Streams responses using SSE line-by-line parsing
-- Auto-scrolls to bottom on new tokens
-- Escape key or X button to minimize
-
-**Update to `src/components/dashboard/Dashboard.tsx`**:
-- Import and render `<ChatPanel />` inside the main content area, positioned fixed bottom-left z-60
-
----
-
-### Technical Details
-
-| Item | Detail |
-|------|--------|
-| AI Model | `google/gemini-3-flash-preview` via Lovable AI gateway |
-| Streaming | SSE with `text/event-stream`, parsed line-by-line on client |
-| Auth | Email/password via Supabase Auth, JWT validated in edge function |
-| Conversation isolation | RLS on `chat_conversations` and `chat_messages` scoped to `auth.uid()` |
-| No new dependencies | Uses existing shadcn/ui, lucide-react, Supabase client |
-
-### Files Created/Modified
+### Files Summary
 
 | Action | File |
 |--------|------|
-| Create | `src/pages/Auth.tsx` |
-| Create | `src/hooks/useAuth.ts` |
-| Create | `src/components/ProtectedRoute.tsx` |
-| Create | `src/components/dashboard/ChatPanel.tsx` |
-| Create | `supabase/functions/chat-analysis/index.ts` |
-| Modify | `src/App.tsx` -- add auth route + protected routes |
-| Modify | `src/components/dashboard/Dashboard.tsx` -- add sign-out button + render ChatPanel |
-| Modify | `supabase/config.toml` -- add chat-analysis function config |
-| Migration | Create profiles, chat_conversations, chat_messages tables with RLS + trigger |
+| Modify | `src/pages/Auth.tsx` -- remove signup, add forgot password link, add remember me checkbox |
+| Create | `src/pages/ResetPassword.tsx` -- password reset form |
+| Create | `src/pages/AdminUsers.tsx` -- admin user management page |
+| Create | `src/components/AdminRoute.tsx` -- admin-only route guard |
+| Modify | `src/hooks/useAuth.ts` -- add transient session support, expose role check |
+| Modify | `src/App.tsx` -- add reset-password and admin routes |
+| Modify | `src/components/dashboard/Dashboard.tsx` -- add admin link in header |
+| Create | `supabase/functions/admin-create-user/index.ts` -- create users (admin only) |
+| Create | `supabase/functions/admin-list-users/index.ts` -- list users (admin only) |
+| Create | `supabase/functions/seed-admins/index.ts` -- one-time seed of initial admins |
+| Migration | Create `user_roles` table, `app_role` enum, `has_role` function, RLS policies |
 
