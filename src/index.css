@@ -94,6 +94,12 @@ All colors MUST be HSL.
   }
 }
 
+/* Fix Radix ScrollArea internal display:table expanding content width */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  min-width: 0 !important;
+}
+
 @layer base {
   * {
     @apply border-border;
