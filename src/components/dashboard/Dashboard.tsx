@@ -277,6 +277,7 @@ export function Dashboard() {
                   emails={emails}
                   filters={filters}
                   onFiltersChange={setFilters}
+                  graphNodes={graphData.nodes}
                 />
               </CollapsibleSection>
 
