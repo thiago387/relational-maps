@@ -24,7 +24,7 @@ export function CollapsibleSection({ title, icon: Icon, defaultOpen = true, chil
         <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", open && "rotate-180")} />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="border border-t-0 border-border rounded-b-lg">
+        <div className="border border-t-0 border-border rounded-b-lg overflow-hidden">
           {children}
         </div>
       </CollapsibleContent>
