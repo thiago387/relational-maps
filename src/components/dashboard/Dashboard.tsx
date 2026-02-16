@@ -104,32 +104,17 @@ export function Dashboard() {
       </header>
 
       {/* Main content */}
-      <div
-        className="flex-1 overflow-hidden"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: !isMobile && sidebarOpen ? '320px minmax(0, 1fr)' : 'minmax(0, 1fr)',
-        }}
-      >
-        {/* Mobile backdrop */}
-        {isMobile && sidebarOpen && (
+      <div className="flex-1 overflow-hidden relative">
+        {/* Backdrop when sidebar is open */}
+        {sidebarOpen && (
           <div
             className="fixed inset-0 z-40 bg-black/50"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
-        {/* Graph area - rendered FIRST in DOM so sidebar paints on top */}
-        <main
-          className="overflow-hidden min-w-0 min-h-0"
-          style={{
-            position: 'relative',
-            zIndex: 0,
-            clipPath: 'inset(0)',
-            gridColumn: !isMobile && sidebarOpen ? '2' : '1',
-            gridRow: '1',
-          }}
-        >
+        {/* Graph area - full width always */}
+        <main className="h-full w-full relative overflow-hidden">
           <div className="absolute inset-0 overflow-hidden">
             <NetworkGraph
               data={graphData}
@@ -150,22 +135,13 @@ export function Dashboard() {
           />
         </main>
 
-        {/* Sidebar - rendered AFTER main in DOM so it naturally paints on top */}
+        {/* Sidebar - ALWAYS fixed overlay */}
         <aside
           className={`
-            ${isMobile
-              ? 'fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg transform transition-transform duration-200'
-              : `${sidebarOpen ? 'border-r border-border bg-background' : 'hidden'}`
-            }
-            ${isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'}
+            fixed inset-y-0 left-0 z-50 w-80 bg-background shadow-lg border-r border-border
+            transform transition-transform duration-200
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           `}
-          style={!isMobile && sidebarOpen ? {
-            position: 'relative',
-            zIndex: 10,
-            overflow: 'hidden',
-            gridColumn: '1',
-            gridRow: '1',
-          } : undefined}
         >
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
