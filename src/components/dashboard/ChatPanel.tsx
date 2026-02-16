@@ -177,7 +177,7 @@ export function ChatPanel() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 left-6 z-[60] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
+        className="fixed bottom-6 right-6 z-[60] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
       >
         <MessageSquare className="h-6 w-6" />
       </button>
@@ -185,7 +185,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="fixed bottom-6 left-6 z-[60] w-[400px] h-[520px] bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed bottom-6 right-6 z-[60] w-[400px] h-[520px] bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 p-3 border-b border-border flex-shrink-0">
         <MessageSquare className="h-4 w-4 text-muted-foreground" />
