@@ -1,18 +1,72 @@
 import { useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Line, ComposedChart } from 'recharts';
-import type { Email, FilterState } from '@/types/graph';
+import type { Email, FilterState, GraphNode } from '@/types/graph';
 
 interface TimelinePanelProps {
   emails: Email[];
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
+  graphNodes?: GraphNode[];
 }
 
-export function TimelinePanel({ emails, filters, onFiltersChange }: TimelinePanelProps) {
+const SentimentDot = (props: any) => {
+  const { cx, cy, payload } = props;
+  if (cx == null || cy == null || payload?.avgSentiment == null) return null;
+  const color = payload.avgSentiment >= 0 ? 'hsl(120, 70%, 45%)' : 'hsl(0, 70%, 50%)';
+  return <circle cx={cx} cy={cy} r={3} fill={color} stroke={color} strokeWidth={1} />;
+};
+
+const SentimentTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      backgroundColor: 'hsl(var(--card))',
+      border: '1px solid hsl(var(--border))',
+      borderRadius: 8,
+      fontSize: 12,
+      padding: '8px 12px',
+    }}>
+      <p style={{ marginBottom: 4 }}>Month: {label}</p>
+      {payload.map((entry: any) => {
+        if (entry.dataKey === 'avgSentiment' && entry.value != null) {
+          const color = entry.value >= 0 ? 'hsl(120, 70%, 45%)' : 'hsl(0, 70%, 50%)';
+          return (
+            <p key={entry.dataKey} style={{ color, margin: 0 }}>
+              ● Avg Sentiment: {entry.value}
+            </p>
+          );
+        }
+        return (
+          <p key={entry.dataKey} style={{ color: 'hsl(var(--primary))', margin: 0 }}>
+            Emails: {entry.value}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
+export function TimelinePanel({ emails, filters, onFiltersChange, graphNodes }: TimelinePanelProps) {
   const timelineData = useMemo(() => {
+    // Build community lookup from graph nodes
+    const communityMap = new Map<string, number | null>();
+    if (graphNodes) {
+      graphNodes.forEach(node => communityMap.set(node.id, node.communityId));
+    }
+
+    const selectedCommunities = filters.selectedCommunities ?? [];
+    const hasCommunityFilter = selectedCommunities.length > 0 && communityMap.size > 0;
+    const selectedSet = new Set(selectedCommunities);
+
     const monthMap = new Map<string, { count: number; sentimentSum: number; sentimentCount: number }>();
 
     emails.forEach(email => {
+      // Community filtering
+      if (hasCommunityFilter && email.sender_id) {
+        const community = communityMap.get(email.sender_id);
+        if (community == null || !selectedSet.has(community)) return;
+      }
+
       let key: string | null = null;
       if (email.year && email.month) {
         key = `${email.year}-${String(email.month).padStart(2, '0')}`;
@@ -42,7 +96,7 @@ export function TimelinePanel({ emails, filters, onFiltersChange }: TimelinePane
         avgSentiment: data.sentimentCount > 0 ? +(data.sentimentSum / data.sentimentCount).toFixed(3) : null,
       }))
       .sort((a, b) => a.month.localeCompare(b.month));
-  }, [emails]);
+  }, [emails, filters.selectedCommunities, graphNodes]);
 
   if (timelineData.length === 0) {
     return (
@@ -57,6 +111,13 @@ export function TimelinePanel({ emails, filters, onFiltersChange }: TimelinePane
       <div className="h-48 overflow-hidden min-w-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={timelineData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
+            <defs>
+              <linearGradient id="sentimentGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="hsl(120, 70%, 45%)" />
+                <stop offset="50%" stopColor="hsl(60, 50%, 50%)" />
+                <stop offset="100%" stopColor="hsl(0, 70%, 50%)" />
+              </linearGradient>
+            </defs>
             <XAxis
               dataKey="label"
               tick={{ fontSize: 10 }}
@@ -68,10 +129,7 @@ export function TimelinePanel({ emails, filters, onFiltersChange }: TimelinePane
             />
             <YAxis yAxisId="left" tick={{ fontSize: 10 }} />
             <YAxis yAxisId="right" orientation="right" domain={[-1, 1]} tick={{ fontSize: 10 }} />
-            <Tooltip
-              contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-              labelFormatter={(v) => `Month: ${v}`}
-            />
+            <Tooltip content={<SentimentTooltip />} />
             <Area
               yAxisId="left"
               type="monotone"
@@ -85,9 +143,9 @@ export function TimelinePanel({ emails, filters, onFiltersChange }: TimelinePane
               yAxisId="right"
               type="monotone"
               dataKey="avgSentiment"
-              stroke="hsl(120, 70%, 45%)"
+              stroke="url(#sentimentGradient)"
               strokeWidth={2}
-              dot={false}
+              dot={<SentimentDot />}
               name="Avg Sentiment"
               connectNulls
             />
