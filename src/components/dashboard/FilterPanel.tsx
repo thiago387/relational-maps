@@ -69,7 +69,7 @@ export function FilterPanel({
   };
 
   return (
-    <div className="space-y-6 p-4 bg-card rounded-lg border border-border">
+    <div className="space-y-6 p-4 bg-card rounded-lg border border-border overflow-hidden">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold flex items-center gap-2">
           <Filter className="h-4 w-4" />
@@ -240,7 +240,7 @@ export function FilterPanel({
             <Users className="h-3 w-3" />
             Communities ({communities.length})
           </Label>
-          <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+          <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto w-full overflow-x-hidden">
             {communities.filter(c => c !== null).map(communityId => (
               <button
                 key={communityId}
